@@ -38,7 +38,7 @@ Create an owner-controlled, private archive outside GitHub. Export and verify, a
 
 Keep personal data and exports private, encrypted, and retained according to applicable Danish/EU data-protection and accounting requirements. Do not commit exports or credentials to GitHub.
 
-The Shopify CSV product importer in Minshop is available under Admin → Import from Shopify. The catalogue is not migrated until the owner imports the export and reconciles product count, images, DKK prices, active status, SKU/barcode, stock, weights, categories and variants. The current importer explicitly rejects real variants; do not publish affected products until their variants are added/resolved in Minshop.
+The Shopify CSV product importer in Minshop is available under Admin → Import from Shopify. The catalogue is not migrated until the owner imports the export and reconciles product count, images, DKK prices, active status, SKU/barcode, stock, weights, categories and variants. The current CSV importer explicitly rejects real variant groups. In addition, the current Lovable `CartDrawer` still submits only product slugs and quantities; although Minshop now validates optional `variant_id` and `extra_ids`, the Lovable cart does not yet send them. Do not publish variant-backed products until the CSV importer and Lovable cart handoff both support the selected variants/options.
 
 ## Gate B — production Minshop readiness
 
@@ -95,4 +95,6 @@ Do not perform the DNS cutover or cancel Shopify while any of these remain true:
 - B2B pricing unit coverage: added and passed.
 - Stripe checkout payload unit coverage: added and passed.
 - Full Minshop Verify: passed on commit `71b6d6d7bddee273ac64d6cfecb85b3c7aeb3dbd`.
+- Minshop cross-origin cart handoff now accepts and validates Minshop public IDs for selected variants and extras; D1 integration verifies selected variant survives and missing selection is rejected.
+- The Lovable cart still sends only slug + quantity; variant-backed product checkout remains blocked until that frontend payload is updated.
 - Shopify archive, production catalogue reconciliation, real provider configuration, domain verification and live order: not evidenced by CI; these remain owner/account-level cutover gates.
