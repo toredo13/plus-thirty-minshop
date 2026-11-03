@@ -226,15 +226,23 @@ export function createStripeProvider(
         // version — try the newer `collected_information` first).
         // `total_details.amount_shipping` is the reliable field on completed
         // sessions; `shipping_cost` is often undefined unless expanded.
-        const shippingCents =
-          session.total_details?.amount_shipping ?? session.shipping_cost?.amount_total ?? 0;
-        // WHICH service the customer picked is only knowable after the fact: the
-        // rate is chosen on Stripe's page. `display_name` is the label we sent as
-        // `shipping_rate_data.display_name`, so no duplicate metadata is needed.
-        let shippingLabel: string | null = null;
-        let deliveryMethod: 'pickup' | 'shipping' | 'unknown' | null = null;
+        const metadataShippingCents = Number(session.metadata?.shipping_cents);
+        const hasMetadataShippingCents =
+          session.metadata?.shipping_cents != null &&
+          session.metadata.shipping_cents !== '' &&
+          Number.isSafeInteger(metadataShippingCents) &&
+          metadataShippingCents >= 0;
+        const shippingCents = hasMetadataShippingCents
+          ? metadataShippingCents
+          : session.total_details?.amount_shipping ?? session.shipping_cost?.amount_total ?? 0;
+        let shippingLabel: string | null = session.metadata?.shipping_label ?? null;
+        const savedDeliveryMethod = session.metadata?.shipping_delivery_method;
+        let deliveryMethod: 'pickup' | 'shipping' | 'unknown' | null =
+          savedDeliveryMethod === 'pickup' || savedDeliveryMethod === 'shipping'
+            ? savedDeliveryMethod
+            : null;
         const rateRef = session.shipping_cost?.shipping_rate;
-        if (typeof rateRef === 'string') {
+        if (!savedDeliveryMethod && typeof rateRef === 'string') {
           try {
             const rate = await stripe.shippingRates.retrieve(rateRef);
             shippingLabel = rate.display_name ?? null;
@@ -242,11 +250,10 @@ export function createStripeProvider(
           } catch {
             // A missing rate must not fail an otherwise valid paid order — but
             // the MODE cannot be guessed either: the customer may have chosen
-            // pickup. 'unknown' blocks label purchase until reconciled, where
-            // a null would have been coalesced into a delivery order.
+            // pickup. 'unknown' blocks label purchase until reconciled.
             deliveryMethod = 'unknown';
           }
-        } else if (rateRef && typeof rateRef === 'object') {
+        } else if (!savedDeliveryMethod && rateRef && typeof rateRef === 'object') {
           shippingLabel = rateRef.display_name ?? null;
           deliveryMethod = classifyRateDelivery(rateRef.metadata);
         }
@@ -268,7 +275,34 @@ export function createStripeProvider(
           (session as unknown as { shipping_details?: ShippingDetails }).shipping_details ??
           null;
         const a = sd?.address;
-        const shippingAddress = a
+        const metadata = session.metadata ?? {};
+        const servicePointCarrier = metadata.service_point_carrier;
+        const servicePoint = metadata.service_point_id &&
+          (servicePointCarrier === 'gls' || servicePointCarrier === 'postnord' || servicePointCarrier === 'dao')
+          ? {
+              id: metadata.service_point_id,
+              name: metadata.service_point_name ?? '',
+              street: metadata.service_point_street ?? '',
+              zip: metadata.service_point_zip ?? '',
+              city: metadata.service_point_city ?? '',
+              carrier: servicePointCarrier,
+            }
+          : null;
+        const hasMetadataAddress = !!(metadata.ship_to_line1 || metadata.ship_to_name || metadata.ship_to_postal);
+        const metadataShippingAddress = hasMetadataAddress
+          ? {
+              name: metadata.ship_to_name || null,
+              line1: metadata.ship_to_line1 || null,
+              line2: metadata.ship_to_line2 || null,
+              city: metadata.ship_to_city || null,
+              state: metadata.ship_to_state || null,
+              postal: metadata.ship_to_postal || null,
+              country: metadata.ship_to_country || null,
+              phone: metadata.ship_to_phone || null,
+              servicePoint,
+            }
+          : null;
+        const shippingAddress = metadataShippingAddress ?? (a
           ? {
               name: sd?.name ?? null,
               line1: a.line1 ?? null,
@@ -278,7 +312,7 @@ export function createStripeProvider(
               postal: a.postal_code ?? null,
               country: a.country ?? null,
             }
-          : null;
+          : null);
 
         const paymentIntentId =
           typeof session.payment_intent === 'string'
