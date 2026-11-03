@@ -606,7 +606,7 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
 <script>
   const pickupForm = document.querySelector<HTMLFormElement>('form[action="/checkout"]');
   const pickupSection = document.querySelector<HTMLElement>('#pickup-point-picker');
-  const pickupCarrier = document.querySelector<HTMLSelectElement>('#pickup-carrier');
+  const pickupCarrier = document.getElementById('pickup-carrier') as unknown as HTMLSelectElement | null;
   const pickupSearch = document.querySelector<HTMLButtonElement>('#pickup-point-search');
   const pickupMessage = document.querySelector<HTMLElement>('#pickup-point-message');
   const pickupResults = document.querySelector<HTMLElement>('#pickup-point-results');
@@ -679,7 +679,9 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
           distance.textContent = point.distance > 0
             ? (point.distance < 1000 ? `${Math.round(point.distance)} m away` : `${(point.distance / 1000).toFixed(1)} km away`)
             : '';
-          button.append(name, address, distance);
+          button.appendChild(name);
+          button.appendChild(address);
+          button.appendChild(distance);
           button.addEventListener('click', () => {
             pickupPointId.value = point.id;
             if (pickupSelected) {
@@ -692,7 +694,7 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
             button.classList.add('border-brand', 'bg-brand/5');
             pickupMessage.textContent = 'Parcel shop selected.';
           });
-          pickupResults.append(button);
+          pickupResults.appendChild(button);
         }
       } catch (error) {
         pickupMessage.textContent = error instanceof Error ? error.message : 'Parcel-shop search failed.';
