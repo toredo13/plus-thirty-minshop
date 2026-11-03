@@ -244,7 +244,7 @@ describe('parcel-shop delivery', () => {
     };
     const quote = quoteShipping(config, { subtotalCents: 12000, country: 'DK', itemWeightGrams: null });
     expect(quote.options).toEqual([
-      { label: FREE_SHIPPING_LABEL, amountCents: 0 },
+      { label: FREE_SHIPPING_LABEL, amountCents: 0, servicePoint: true },
       { label: 'GLS Parcel Shop', amountCents: 3900, servicePoint: true },
     ]);
   });
