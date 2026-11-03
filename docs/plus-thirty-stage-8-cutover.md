@@ -6,7 +6,7 @@ This runbook is the final production gate for moving Plus Thirty away from Shopi
 
 The latest checked revisions passed:
 
-- Minshop `plus-thirty-v020`, commit `71b6d6d7bddee273ac64d6cfecb85b3c7aeb3dbd`: Minshop quality checks passed (unit tests, Astro/TypeScript checks, Cloudflare Worker build).
+- Minshop `plus-thirty-v020`, commit `0cdadbc8761923f381788639976601fc66b882e7`: Minshop quality checks passed (unit tests, Astro/TypeScript checks, Cloudflare Worker build).
 - The same Minshop commit: full `Verify` passed, including unit/integration verification, D1-backed cart and checkout integration, variant handoff validation, and the `market` and `studio` theme contract/build jobs.
 - Lovable storefront `main`, commit `c3e852e7e03b1a18fd41b97fa80c182a475b6222`: Storefront tests and production build passed, including wholesale order approval/pricing tests.
 
@@ -94,7 +94,7 @@ Do not perform the DNS cutover or cancel Shopify while any of these remain true:
 - Stage 7 automated CI: passed on the revisions listed above.
 - B2B pricing unit coverage: added and passed.
 - Stripe checkout payload unit coverage: added and passed.
-- Full Minshop Verify: passed on commit `71b6d6d7bddee273ac64d6cfecb85b3c7aeb3dbd`.
+- Full Minshop Verify: passed on commit `0cdadbc8761923f381788639976601fc66b882e7`.
 - Minshop cross-origin cart handoff now accepts and validates Minshop public IDs for selected variants and extras; D1 integration verifies selected variant survives and missing selection is rejected.
 - The Lovable cart still sends only slug + quantity; variant-backed product checkout remains blocked until that frontend payload is updated.
 - Shopify archive, production catalogue reconciliation, real provider configuration, domain verification and live order: not evidenced by CI; these remain owner/account-level cutover gates.
