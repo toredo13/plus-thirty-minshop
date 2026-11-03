@@ -63,7 +63,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
         for (const message of result.errors) {
           const li = document.createElement('li');
           li.textContent = message;
-          errors!.append(li);
+          errors!.appendChild(li);
         }
         return;
       }
@@ -101,7 +101,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
         failed += 1;
         const li = document.createElement('li');
         li.textContent = `${product.name}: ${error instanceof Error ? error.message : 'Import failed'}`;
-        errors!.append(li);
+        errors!.appendChild(li);
       }
       progress!.textContent = `Processed ${i + 1} / ${products.length} — imported: ${imported}, already present: ${skipped}, errors: ${failed}`;
     }
