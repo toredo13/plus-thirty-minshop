@@ -113,13 +113,15 @@ export async function recordQuote(
   db: D1Database,
   orderId: number,
   shipmentId: string,
+  provider: string | null = null,
 ): Promise<boolean> {
   const row = await db
     .prepare(
-      `INSERT INTO shipping_labels (order_id, status, shipment_id)
-       SELECT ?1, 'quoted', ?2 WHERE ${ORDER_ELIGIBLE}
+      `INSERT INTO shipping_labels (order_id, status, shipment_id, provider)
+       SELECT ?1, 'quoted', ?2, ?3 WHERE ${ORDER_ELIGIBLE}
        ON CONFLICT(order_id) DO UPDATE SET
          shipment_id = excluded.shipment_id,
+         provider = excluded.provider,
          status = 'quoted',
          rate_id = NULL,
          transaction_id = NULL,
@@ -134,7 +136,7 @@ export async function recordQuote(
        WHERE shipping_labels.status IN ('quoted', 'failed')
        RETURNING order_id`,
     )
-    .bind(orderId, shipmentId)
+    .bind(orderId, shipmentId, provider)
     .first();
   return row != null;
 }
