@@ -24,6 +24,7 @@ import {
 import { shouldSendCustomerOrderEmail } from '../../../features/email/orderPolicy';
 import RefundPanel from '../../../features/refunds/RefundPanel.astro';
 import { formatWeight } from '../../../features/shipping/weight';
+import { fetchShipmondoProducts, type ShipmondoProduct } from '../../../features/shipping/shipmondo';
 import { parseOrderOrLegacyPublicId } from '../../../features/ids/publicId';
 
 // The route param is the order public ID — ord_ or a preserved legacy shape
@@ -103,6 +104,23 @@ if (canLabel) {
   try {
     parcelDefault = JSON.parse((await getSetting(env.DB, 'parcel_default')) ?? '{}');
   } catch {}
+}
+const shipmondoUser = await getSecret(env.DB, 'shipmondo_api_user');
+const shipmondoKey = await getSecret(env.DB, 'shipmondo_api_key');
+const canShipmondoLabel =
+  !!shipmondoUser &&
+  !!shipmondoKey &&
+  !!order.ship_address &&
+  !fulfilled &&
+  order.status === 'paid' &&
+  order.delivery_method === 'shipping' &&
+  (!labelRecord || labelRecord.provider === 'Shipmondo' || labelRecord.status === 'failed');
+let shipmondoProducts: ShipmondoProduct[] = [];
+let shipmondoProductsError: string | null = null;
+if (canShipmondoLabel && shipmondoUser && shipmondoKey && labelRecord?.status !== 'purchasing' && labelRecord?.status !== 'uncertain') {
+  const response = await fetchShipmondoProducts(shipmondoUser, shipmondoKey, ship?.country ?? 'DK');
+  if (response.ok) shipmondoProducts = response.value;
+  else shipmondoProductsError = response.error;
 }
 const dimUnit = distanceUnitFor(weightUnit);
 const parcelWeightValue =
