@@ -4,9 +4,9 @@ import { withPublicId } from '../ids/publicId.ts';
 export interface Product {
   id: number;
   public_id: string | null;
-  source_handle: string | null;
-  vendor: string | null;
-  source_tags: string | null;
+  source_handle?: string | null;
+  vendor?: string | null;
+  source_tags?: string | null;
   name: string;
   slug: string;
   description: string | null;
