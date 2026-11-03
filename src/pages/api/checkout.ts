@@ -275,16 +275,13 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // in one session). New products already default to this; legacy rows are coerced.
   const storeCurrency = cfg.currency;
 
-  // Shipping (when enabled): rates come from the shared zone calculator. Stripe
-  // Checkout shows a STATIC list (it collects the address itself, after this), so
-  // it gets the primary zone's options; zone-accurate per-address shipping is the
-  // own-checkout (Lightning) path's job — Stripe can't recompute mid-session.
+  // Shippable baskets have already been redirected to Minshop's address + rate
+  // step above for every payment rail. Keep the calculator here for the existing
+  // no-shipping / compatibility path; it must never infer a parcel-shop selection.
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.qty, 0);
   const shipCalc = createConfigRatesCalculator(effectiveShipping);
-  // The shopper pre-selects a destination on the cart (defaulted, editable), so
-  // Stripe gets that zone's rates instead of always the first zone's. Stripe still
-  // collects + confirms the full address on its page; this just sets which rates
-  // it shows. Falls back to the first zone's country (e.g. buy-now, no selector).
+  // Country fallback for the legacy hosted-Stripe shipping path. Current physical
+  // checkouts collect and validate the actual address before creating the session.
   const countryField = form.get('country');
   const selectedCountry = countryField == null ? null : String(countryField).trim().toUpperCase();
   // Nullable on purpose: an invented fallback (say 'US' for a CU-only store)
@@ -315,8 +312,8 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
         missingWeight: shipment.missingWeight,
       })
     : null;
-  // No options for a REQUIRED shipment blocks the order — sending Stripe an empty
-  // option list (or an empty allowed_countries) is an API error, not "no shipping".
+  // Retained for the hosted-Stripe compatibility path: a required shipment must
+  // never be silently converted into a no-shipping checkout.
   if (quote && quote.options.length === 0) {
     const missing = quote.omitted.some((o) => o.reason === 'missing_weight');
     if (missing) {
@@ -342,10 +339,8 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
       303,
     );
   }
-  // The session collects an address ONLY for the country the rates were priced
-  // against. Any wider list lets the shopper keep a cheap zone's rate while
-  // entering an address in an expensive one; a crafted country in the POST is
-  // refused here, before inventory is reserved.
+  // Retained hosted-Stripe safeguard. The current in-app checkout already priced
+  // shipping against the submitted address before reaching this provider path.
   const sessionCountries =
     quote && shipCountry
       ? stripeSessionDestination(shipCountry, shipCalc.allowedCountries(), shipCalc.hasCatchAll())
