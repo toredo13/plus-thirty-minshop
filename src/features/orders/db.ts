@@ -4,6 +4,15 @@ import {
   type StockTransitionPurger,
 } from '../products/stock.ts';
 
+export interface ShippingServicePoint {
+  id: string;
+  name: string;
+  street: string;
+  zip: string;
+  city: string;
+  carrier: 'gls' | 'postnord' | 'dao';
+}
+
 export interface ShippingAddress {
   name: string | null;
   line1: string | null;
@@ -12,6 +21,8 @@ export interface ShippingAddress {
   state: string | null;
   postal: string | null;
   country: string | null;
+  phone?: string | null;
+  servicePoint?: ShippingServicePoint | null;
 }
 
 export interface Order {
