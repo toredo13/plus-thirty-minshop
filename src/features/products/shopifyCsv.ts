@@ -70,7 +70,8 @@ function truthy(value: string | undefined): boolean {
 }
 
 function numberField(value: string | undefined, fallback: number, field: string, handle: string): number {
-  const parsed = Number((value ?? '').trim());
+  const raw = (value ?? '').trim();
+  const parsed = raw === '' ? fallback : Number(raw);
   if (!Number.isFinite(parsed)) throw new Error(`Product "${handle}": invalid ${field}.`);
   return parsed;
 }
