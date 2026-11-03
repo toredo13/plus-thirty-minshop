@@ -17,18 +17,6 @@ export type PickupPointResult =
   | { ok: true; points: PickupPoint[] }
   | { ok: false; error: string };
 
-function xmlValue(xml: string, tag: string): string {
-  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const value = xml.match(new RegExp(`<${escaped}>([^<]*)</${escaped}>`, 'i'))?.[1] ?? '';
-  return value
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .trim();
-}
-
 /** Search nearby Danish parcel shops. Shipmondo keys stay server-side in the D1 vault. */
 export async function findPickupPoints(
   db: D1Database,
@@ -40,32 +28,6 @@ export async function findPickupPoints(
   const address = street.trim().slice(0, 120);
 
   try {
-    if (carrier === 'gls') {
-      const params = new URLSearchParams({
-        street: address,
-        zipcode: zip,
-        countryIso3166A2: 'DK',
-        Amount: '3',
-      });
-      const response = await fetch(
-        `https://www.gls.dk/webservices_v4/wsShopFinder.asmx/SearchNearestParcelShops?${params}`,
-        { signal: AbortSignal.timeout(10_000) },
-      );
-      if (!response.ok) return { ok: false, error: `GLS parcel-shop search failed (HTTP ${response.status}).` };
-      const xml = await response.text();
-      const blocks = xml.split('<PakkeshopData>').slice(1, 4);
-      const points = blocks.map((block) => ({
-        id: xmlValue(block, 'Number'),
-        name: xmlValue(block, 'CompanyName'),
-        street: xmlValue(block, 'Streetname'),
-        zip: xmlValue(block, 'ZipCode'),
-        city: xmlValue(block, 'CityName'),
-        distance: Number(xmlValue(block, 'DistanceMetersAsTheCrowFlies')) || 0,
-        carrier,
-      })).filter((point) => point.id && point.name);
-      return { ok: true, points };
-    }
-
     const [username, key] = await Promise.all([
       getSecret(db, 'shipmondo_api_user'),
       getSecret(db, 'shipmondo_api_key'),
