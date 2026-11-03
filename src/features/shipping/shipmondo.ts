@@ -34,6 +34,7 @@ export interface ShipmondoShipmentInput {
   receiver: ShipmondoParty;
   weightGrams: number;
   servicePointId?: string | null;
+  servicePointProduct?: boolean;
 }
 
 export interface ShipmondoShipment {
@@ -167,7 +168,9 @@ export function buildShipmondoShipmentPayload(input: ShipmondoShipmentInput): Re
     reference: input.reference,
     ...(pointId
       ? { service_point_id: pointId, automatic_select_service_point: false }
-      : {}),
+      : input.servicePointProduct
+        ? { automatic_select_service_point: true }
+        : {}),
     parties: [input.sender, input.receiver],
     parcels: [{ weight: input.weightGrams }],
   };
