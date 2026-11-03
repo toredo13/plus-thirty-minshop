@@ -60,6 +60,8 @@ const weightUnit = Astro.locals.settings?.weightUnit ?? 'g';
 // reads a shipment id from the URL, so another order's quote cannot be spliced
 // in. Rates render on a plain GET, so the flow needs no JS.
 const shippoToken = await getSecret(env.DB, 'shippo_api_key');
+const shipmondoUser = await getSecret(env.DB, 'shipmondo_api_user');
+const shipmondoKey = await getSecret(env.DB, 'shipmondo_api_key');
 // canLabel gates QUOTING AND BUYING only. The label record itself is loaded
 // unconditionally: a purchased label whose order refused fulfillment (refund
 // mid-purchase, forced manual fulfil) is money already spent, and it must stay
@@ -68,6 +70,7 @@ const labelRecord = await getLabelRecord(env.DB, order.id);
 const labelAttempts = await listLabelAttempts(env.DB, order.id);
 const canLabel =
   !!shippoToken &&
+  (!shipmondoUser || !shipmondoKey || labelRecord?.provider === 'Shippo') &&
   !!order.ship_address &&
   !fulfilled &&
   order.status === 'paid' &&
@@ -105,8 +108,6 @@ if (canLabel) {
     parcelDefault = JSON.parse((await getSetting(env.DB, 'parcel_default')) ?? '{}');
   } catch {}
 }
-const shipmondoUser = await getSecret(env.DB, 'shipmondo_api_user');
-const shipmondoKey = await getSecret(env.DB, 'shipmondo_api_key');
 const canShipmondoLabel =
   !!shipmondoUser &&
   !!shipmondoKey &&
