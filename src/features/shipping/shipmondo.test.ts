@@ -22,10 +22,11 @@ describe('Shipmondo adapter', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
       code: 'GLSDK_SD',
       name: 'GLS ShopDelivery',
+      available: true,
       carrier: { code: 'gls', name: 'GLS' },
-      required_services: [{ code: 'EMAIL_NT' }],
+      required_services: [{ code: 'EMAIL_NT', required_fields: 'receiver_email' }],
       service_point_product: true,
-      weight_intervals: [{ min: 0, max: 20000 }],
+      weight_intervals: [{ from_weight: 0, to_weight: 20000 }],
     }])));
 
     const result = await fetchShipmondoProducts('api-user', 'api-key', 'DK');
@@ -35,7 +36,10 @@ describe('Shipmondo adapter', () => {
       code: 'GLSDK_SD',
       carrierCode: 'gls',
       requiredServices: ['EMAIL_NT'],
+      requiredFields: ['receiver_email'],
       servicePointProduct: true,
+      available: true,
+      weightIntervals: [{ fromWeight: 0, toWeight: 20000 }],
     });
   });
 
