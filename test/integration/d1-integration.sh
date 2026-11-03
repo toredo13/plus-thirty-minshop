@@ -388,6 +388,11 @@ node -e '
   if (body.count !== 1) throw new Error(`expected cart count 1, got ${body.count}`);
 ' "$cart_count_json"
 
+# Seed a variant-backed product for the cross-origin handoff check. Its
+# external IDs are fixed valid fixtures and are isolated to this local D1 run.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "INSERT INTO products (name, slug, description, price_cents, currency, stock, active, public_id, variant_label) VALUES ('Option Tee', 'option-tee', 'variant handoff fixture', 1000, 'DKK', 0, 1, 'prod_abcdefghjk', 'Size'); INSERT INTO product_variants (product_id, label, price_cents, stock, sku, position, active, public_id) SELECT id, 'Small', 1000, 5, 'OPT-S', 0, 1, 'var_abcdefghjk' FROM products WHERE slug = 'option-tee';" >/dev/null
+
 # The legacy Lovable storefront must establish a Minshop-owned cart with a
 # tightly allowlisted cross-origin handoff. Only slugs and quantities cross the
 # boundary; Minshop resolves price, availability, and stock from D1.
@@ -416,6 +421,47 @@ do
     if (body.count !== 2) throw new Error(`expected imported cart count 2, got ${body.count}`);
   ' "$handoff_count"
 done
+
+# A selected Minshop variant must survive the Lovable-to-Minshop handoff.
+variant_handoff_jar="$state_dir/variant-handoff.txt"
+variant_handoff_status="$(curl --max-time 30 --silent --output /dev/null --write-out '%{http_code}' \
+  --cookie-jar "$variant_handoff_jar" \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -H 'origin: https://plusthirty.dk' \
+  --data-urlencode '_action=import' \
+  --data-urlencode 'items=[{"slug":"option-tee","quantity":2,"variant_id":"var_abcdefghjk"}]' \
+  "http://127.0.0.1:$test_port/api/cart")"
+if [[ "$variant_handoff_status" != "303" ]]; then
+  echo "D1 integration failed: selected variant handoff returned HTTP $variant_handoff_status" >&2
+  exit 1
+fi
+variant_cart_count="$(curl --max-time 30 --fail --silent --show-error \
+  --cookie "$variant_handoff_jar" \
+  "http://127.0.0.1:$test_port/partials/cart-count")"
+node -e '
+  const body = JSON.parse(process.argv[1]);
+  if (body.count !== 2) throw new Error(`expected variant cart count 2, got ${body.count}`);
+' "$variant_cart_count"
+variant_cart_fragment="$(curl --max-time 30 --fail --silent --show-error \
+  --cookie "$variant_handoff_jar" \
+  "http://127.0.0.1:$test_port/partials/cart")"
+if [[ "$variant_cart_fragment" != *"Option Tee"* || "$variant_cart_fragment" != *"Small"* ]]; then
+  echo "D1 integration failed: selected variant was not preserved in the Minshop cart" >&2
+  exit 1
+fi
+
+# A variant-backed product must not be imported without a selection.
+missing_variant_status="$(curl --max-time 30 --silent --output /dev/null --write-out '%{http_code}' \
+  --cookie-jar "$state_dir/missing-variant.txt" \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -H 'origin: https://plusthirty.dk' \
+  --data-urlencode '_action=import' \
+  --data-urlencode 'items=[{"slug":"option-tee","quantity":1}]' \
+  "http://127.0.0.1:$test_port/api/cart")"
+if [[ "$missing_variant_status" != "409" ]]; then
+  echo "D1 integration failed: missing variant selection returned HTTP $missing_variant_status (expected 409)" >&2
+  exit 1
+fi
 
 # A random external site must not be able to create a shopper's cart.
 untrusted_handoff_status="$(curl --max-time 30 --silent --output /dev/null --write-out '%{http_code}' \
