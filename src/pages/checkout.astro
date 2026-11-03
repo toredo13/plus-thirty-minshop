@@ -255,19 +255,22 @@ if (submitted) {
           errors.push('Please choose a shipping option.');
         } else {
           if (chosen.pickup) {
-            const carrier = fld('pickup_carrier');
-            const pointId = fld('pickup_point_id');
-            if (!isPickupCarrier(carrier) || !pointId) {
-              errors.push('Choose a parcel shop before continuing.');
+            if (addr.country !== 'DK') {
+              errors.push('Parcel-shop selection is currently available for Danish delivery addresses only.');
             } else {
-              const lookup = await findPickupPoints(env.DB, carrier, addr.postal, addr.line1);
-              if (!lookup.ok) {
-                errors.push(lookup.error);
+              const carrier = fld('pickup_carrier');
+              const pointId = fld('pickup_point_id');
+              if (!isPickupCarrier(carrier) || !pointId) {
+                errors.push('Choose a parcel shop before continuing.');
               } else {
-                selectedPickupPoint = lookup.points.find((point) => point.id === pointId) ?? null;
-                if (!selectedPickupPoint) {
-                  errors.push('That parcel shop could not be verified. Search again and choose a listed parcel shop.');
+                const lookup = await findPickupPoints(env.DB, carrier, addr.postal, addr.line1);
+                if (!lookup.ok) {
+                  errors.push(lookup.error);
                 } else {
+                  selectedPickupPoint = lookup.points.find((point) => point.id === pointId) ?? null;
+                  if (!selectedPickupPoint) {
+                    errors.push('That parcel shop could not be verified. Search again and choose a listed parcel shop.');
+                  }
                 }
               }
             }
@@ -395,7 +398,10 @@ if (submitted) {
 
 const showShipping = stage === 'shipping';
 const hasErrors = errors.length > 0;
-const initialShippingLabel = fld('shipping_label') || (rail === 'demo' ? (options[0]?.label ?? '') : '');
+const postedShippingLabel = fld('shipping_label');
+const initialShippingLabel = options.some((option) => option.label === postedShippingLabel)
+  ? postedShippingLabel
+  : (options[0]?.label ?? '');
 const initialPickupRequired = options.find((option) => option.label === initialShippingLabel)?.pickup === true;
 const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier')) ? fld('pickup_carrier') as PickupCarrier : 'gls';
 ---
@@ -446,7 +452,6 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
           <input type="hidden" name="postal" value={addr.postal} />
           <input type="hidden" name="country" value={addr.country} />
           <input type="hidden" name="phone" value={addr.phone} />
-
 
           <div class="rounded-lg border border-line bg-surface p-4 text-sm">
             <div class="mb-1 font-medium">Ship to</div>
