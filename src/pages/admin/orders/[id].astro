@@ -70,7 +70,7 @@ const labelRecord = await getLabelRecord(env.DB, order.id);
 const labelAttempts = await listLabelAttempts(env.DB, order.id);
 const canLabel =
   !!shippoToken &&
-  (!shipmondoUser || !shipmondoKey || labelRecord?.provider === 'Shippo') &&
+  (!shipmondoUser || !shipmondoKey || (!!labelRecord && labelRecord.provider !== 'Shipmondo')) &&
   !!order.ship_address &&
   !fulfilled &&
   order.status === 'paid' &&
