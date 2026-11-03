@@ -5,10 +5,8 @@ import type {
   CheckoutResult,
   WebhookResult,
 } from './provider';
-import { STRIPE_CHECKOUT_TTL_SECONDS } from './provider';
-import { stripeAllowedCountries } from './stripeCountries.ts';
-import { stripeTaxPriceOptions } from './stripeTax';
 import type { ShippingServicePoint } from '../orders/db';
+import { buildStripeCheckoutSessionParams } from './stripeCheckout';
 
 /**
  * The delivery mode a chosen Stripe rate encodes. Session creation stamps every
@@ -53,112 +51,9 @@ export function createStripeProvider(
 
   return {
     async createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult> {
-      const selected = params.selectedShipping;
-      const selectedAddress = selected?.address;
-      const servicePoint = selectedAddress?.servicePoint ?? null;
-      const selectedShippingMetadata = selected && selectedAddress
-        ? {
-            shipping_cents: String(selected.amountCents),
-            shipping_label: selected.label.slice(0, 500),
-            shipping_delivery_method: selected.deliveryMethod,
-            ship_to_name: (selectedAddress.name ?? '').slice(0, 500),
-            ship_to_line1: (selectedAddress.line1 ?? '').slice(0, 500),
-            ship_to_line2: (selectedAddress.line2 ?? '').slice(0, 500),
-            ship_to_city: (selectedAddress.city ?? '').slice(0, 500),
-            ship_to_state: (selectedAddress.state ?? '').slice(0, 500),
-            ship_to_postal: (selectedAddress.postal ?? '').slice(0, 500),
-            ship_to_country: (selectedAddress.country ?? '').slice(0, 2),
-            ship_to_phone: (selectedAddress.phone ?? '').slice(0, 100),
-            ...(servicePoint && {
-              service_point_id: servicePoint.id.slice(0, 100),
-              service_point_name: servicePoint.name.slice(0, 200),
-              service_point_street: servicePoint.street.slice(0, 200),
-              service_point_zip: servicePoint.zip.slice(0, 20),
-              service_point_city: servicePoint.city.slice(0, 100),
-              service_point_carrier: servicePoint.carrier,
-            }),
-            ...(selected.weightGrams != null && {
-              shipping_weight_grams: String(selected.weightGrams),
-            }),
-          }
-        : {};
-      const shippingLineItem = selected
-        ? [{
-            price_data: {
-              currency: params.lineItems[0]?.currency ?? 'dkk',
-              unit_amount: selected.amountCents,
-              ...stripeTaxPriceOptions(params.automaticTax),
-              product_data: { name: `Shipping — ${selected.label}` },
-            },
-            quantity: 1,
-          }]
-        : [];
-      const session = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        // Keep the hosted session within the inventory reservation window.
-        expires_at: Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_TTL_SECONDS,
-        line_items: [
-          ...params.lineItems.map((li) => ({
-            price_data: {
-              currency: li.currency,
-              unit_amount: li.amountCents,
-              // Danish consumer prices include VAT. When Stripe Tax is enabled,
-              // the shared helper extracts tax from the displayed amount instead
-              // of adding VAT on top.
-              ...stripeTaxPriceOptions(params.automaticTax),
-              product_data: {
-                name: li.name,
-                ...(li.imageUrl && { images: [li.imageUrl] }),
-              },
-            },
-            quantity: li.quantity,
-          })),
-          ...shippingLineItem,
-        ],
-        success_url: params.successUrl,
-        cancel_url: params.cancelUrl,
-        ...(selected?.email && { customer_email: selected.email }),
-        ...((params.metadata || params.shipping?.shipmentWeightGrams != null || selected) && {
-          metadata: {
-            ...(params.metadata ?? {}),
-            // Stripe picks a hosted rate only for the legacy static-shipping path.
-            ...(params.shipping?.shipmentWeightGrams != null && {
-              shipping_weight_grams: String(params.shipping.shipmentWeightGrams),
-            }),
-            ...selectedShippingMetadata,
-          },
-        }),
-        ...(selected && params.automaticTax && {
-          // Automatic Tax needs a billing location. Delivery address is already
-          // collected by Minshop and is preserved in metadata with the parcel shop.
-          billing_address_collection: 'required' as const,
-        }),
-        ...(params.allowPromotionCodes && { allow_promotion_codes: true }),
-        ...(params.automaticTax && { automatic_tax: { enabled: true } }),
-        ...(params.shipping && {
-          shipping_address_collection: {
-            allowed_countries: stripeAllowedCountries(
-              params.shipping.addressCountries,
-              params.shipping.hasCatchAll === true,
-            ) as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
-          },
-          shipping_options: params.shipping.options.map((o) => ({
-            shipping_rate_data: {
-              type: 'fixed_amount' as const,
-              display_name: o.label,
-              fixed_amount: {
-                amount: o.amountCents,
-                currency: params.lineItems[0]?.currency ?? 'usd',
-              },
-              // The mode travels as rate metadata because the label is merchant
-              // prose: settlement reads this back to record delivery_method
-              // without parsing "Local pickup" out of display text.
-              metadata: { delivery: o.pickup ? 'pickup' : 'shipping' },
-              ...stripeTaxPriceOptions(params.automaticTax),
-            },
-          })),
-        }),
-      });
+      const session = await stripe.checkout.sessions.create(
+        buildStripeCheckoutSessionParams(params),
+      );
       if (!session.url) {
         throw new Error('Stripe did not return a checkout URL');
       }
