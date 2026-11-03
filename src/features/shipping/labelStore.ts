@@ -168,6 +168,8 @@ export async function claimPurchase(
 
 export interface PurchasedRecord {
   transactionId: string;
+  /** Provider's durable shipment ID when it differs from the pre-purchase quote ID. */
+  shipmentId?: string;
   provider: string;
   service: string;
   amountCents: number;
@@ -196,12 +198,13 @@ export async function recordPurchased(
     db
       .prepare(
         `UPDATE shipping_labels
-            SET status = 'purchased', transaction_id = ?2, provider = ?3, service = ?4,
+            SET status = 'purchased', shipment_id = COALESCE(?9, shipment_id),
+                transaction_id = ?2, provider = ?3, service = ?4,
                 amount_cents = ?5, tracking_number = ?6, label_url = ?7, error = NULL,
                 updated_at = datetime('now')
           WHERE order_id = ?1 AND status IN ('purchasing', 'uncertain') AND claim_token = ?8`,
       )
-      .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken),
+      .bind(orderId, p.transactionId, p.provider, p.service, p.amountCents, p.trackingNumber, p.labelUrl, claimToken, p.shipmentId ?? null),
     // The active row is mutable; this append-only copy is the durable money
     // trail and survives replacement quotes and later label purchases.
     db
