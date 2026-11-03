@@ -26,7 +26,7 @@ import {
 } from './features/cache/public';
 import { addCacheTags, responseCacheTags } from './features/cache/tags';
 import { normalizeSearchQuery } from './features/search/query';
-import { isForbiddenFormOrigin } from './features/auth/formOrigin';
+import { isForbiddenFormOrigin, isAllowedCartImportHandoff } from './features/auth/formOrigin';
 
 /**
  * Admin auth gate. Protects BOTH the admin UI (`/admin/*`) and the admin API
@@ -225,7 +225,10 @@ async function route(context: APIContext, next: MiddlewareNext): Promise<Respons
   const path = context.url.pathname;
   const productError = path.startsWith('/products/') && context.url.searchParams.has('error');
 
-  let response = isForbiddenFormOrigin(context.request, context.url)
+  const forbiddenOrigin = isForbiddenFormOrigin(context.request, context.url);
+  const allowedCartHandoff =
+    forbiddenOrigin && (await isAllowedCartImportHandoff(context.request, context.url));
+  let response = forbiddenOrigin && !allowedCartHandoff
     ? new Response(`Cross-site ${context.request.method} form submissions are forbidden`, {
         status: 403,
       })
