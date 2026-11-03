@@ -193,7 +193,7 @@ if (Astro.request.method === 'POST') {
 
 function parseModelForPreview(m: ShippingFormModel): ShippingValidationError[] {
   return validateShippingDocument({
-    schema: 2,
+    schema: 4,
     revision: m.revision + 1,
     enabled: m.enabled,
     packageWeightGrams: 0,
@@ -212,7 +212,7 @@ function parseModelForPreview(m: ShippingFormModel): ShippingValidationError[] {
                   amountCents: Math.round(Number(b.amountValue) * 100),
                 })),
               }
-            : { type: 'flat' as const, amountCents: Math.round(Number(r.amountValue) * 100) },
+            : { type: r.mode as 'flat' | 'pickup' | 'service_point', amountCents: Math.round(Number(r.amountValue) * 100) },
       })),
     })),
   });
@@ -231,6 +231,7 @@ const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500
         Zones, rates, and free-shipping thresholds. Amounts are in {currency.toUpperCase()};
         weights are entered in <strong>{unit}</strong> and stored in grams — change the unit in{' '}
         <a href="/admin/settings" class="underline hover:text-brand">Settings</a>.
+        Parcel-shop delivery is a shipped order; local pickup is collection from your store.
       </p>
     </div>
     <a href="/cart" class="text-xs uppercase tracking-widest text-gray-500 hover:text-brand">
@@ -385,6 +386,7 @@ const label = (path: string) => `text-xs uppercase tracking-widest text-gray-500
                     <option value="flat" selected={rate.mode === 'flat'}>Flat price</option>
                     <option value="weight" selected={rate.mode === 'weight'}>By order weight</option>
                     <option value="pickup" selected={rate.mode === 'pickup'}>Local pickup</option>
+                    <option value="service_point" selected={rate.mode === 'service_point'}>Parcel shop delivery</option>
                   </select>
                 </label>
                 {rate.mode !== 'weight' && (

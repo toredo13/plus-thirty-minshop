@@ -173,6 +173,10 @@ const ship = order.ship_address
       servicePoint?: unknown;
     })
   : null;
+const servicePoint =
+  ship?.servicePoint && typeof ship.servicePoint === 'object'
+    ? (ship.servicePoint as Record<string, unknown>)
+    : null;
 // Domestic-only for now: international labels need a customs declaration this
 // flow doesn't collect. Warn on the page only when the saved origin makes the
 // mismatch knowable; the POST enforces it regardless.
@@ -238,6 +242,11 @@ const willEmailCustomer =
         {order.shipping_weight_grams != null && (
           <span class="text-gray-500">
             {' '}· {formatWeight(order.shipping_weight_grams, weightUnit)}
+          </span>
+        )}
+        {servicePoint && (
+          <span class="mt-1 block text-xs text-gray-500">
+            Parcel shop: {String(servicePoint.name ?? '')} · {String(servicePoint.street ?? '')}, {String(servicePoint.zip ?? '')} {String(servicePoint.city ?? '')} ({String(servicePoint.carrier ?? '').toUpperCase()})
           </span>
         )}
       </dd>

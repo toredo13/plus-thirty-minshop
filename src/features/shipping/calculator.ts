@@ -18,10 +18,10 @@ export const FREE_SHIPPING_LABEL = 'Free shipping';
 export interface ShippingOption {
   label: string;
   amountCents: number;
-  /** Collected in person — no carrier, no delivery. Fulfillment needs this as
-   *  DATA (orders record it as delivery_method); the label text is merchant
-   *  prose and must never be parsed for meaning. */
+  /** In-person collection at the merchant — no carrier is involved. */
   pickup?: boolean;
+  /** Carrier delivery to a selected parcel shop; still requires a shipping label. */
+  servicePoint?: boolean;
 }
 
 export interface FlatRatePricing {
@@ -56,7 +56,18 @@ export interface PickupRatePricing {
   amountCents: number;
 }
 
-export type RatePricing = FlatRatePricing | WeightRatePricing | PickupRatePricing;
+/** Carrier delivery to a customer-selected parcel shop. Unlike local pickup,
+ * this is a shipped order and must be fulfilled with a carrier label. */
+export interface ServicePointRatePricing {
+  type: 'service_point';
+  amountCents: number;
+}
+
+export type RatePricing =
+  | FlatRatePricing
+  | WeightRatePricing
+  | PickupRatePricing
+  | ServicePointRatePricing;
 
 export interface ShippingRate {
   label: string;
@@ -167,19 +178,29 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
   const options: ShippingOption[] = [];
   const omitted: OmittedRate[] = [];
 
-  // Whether some DELIVERY service resolved — pickup never counts: it is not a
-  // way to send the parcel, so it must not unlock free *delivery*.
+  // Whether some DELIVERY service resolved — local pickup never counts. Keep
+  // track of the resolved delivery type so a threshold-only free option in a
+  // parcel-shop-only zone still requires the shopper to choose a parcel shop.
   let deliveryResolved = false;
+  let servicePointResolved = false;
+  let otherDeliveryResolved = false;
   for (const rate of rates) {
     if (rate.pricing.type === 'pickup') {
       // Weight can never disqualify pickup: the shopper carries it.
       options.push({ label: rate.label, amountCents: rate.pricing.amountCents, pickup: true });
       continue;
     }
-    if (rate.pricing.type === 'flat') {
-      // Flat rates do not care about weight, so an unknown weight must not hide them.
-      options.push({ label: rate.label, amountCents: rate.pricing.amountCents });
+    if (rate.pricing.type === 'flat' || rate.pricing.type === 'service_point') {
+      // Flat and parcel-shop rates do not care about weight, so an unknown
+      // weight must not hide them. Parcel-shop delivery is still a shipment.
+      options.push({
+        label: rate.label,
+        amountCents: rate.pricing.amountCents,
+        ...(rate.pricing.type === 'service_point' ? { servicePoint: true } : {}),
+      });
       deliveryResolved = true;
+      if (rate.pricing.type === 'service_point') servicePointResolved = true;
+      else otherDeliveryResolved = true;
       continue;
     }
     if (shipmentWeightGrams == null) {
@@ -193,6 +214,7 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
     }
     options.push({ label: rate.label, amountCents: band.amountCents });
     deliveryResolved = true;
+    otherDeliveryResolved = true;
   }
 
   // "Free shipping" is a DELIVERY promise, so it is synthesized only when a real
@@ -202,7 +224,11 @@ export function quoteShipping(cfg: ShippingConfig, input: ShippingQuoteInput): S
   // zone with NO configured rates has always synthesized it.
   const qualifies = zone.freeOverCents != null && input.subtotalCents >= zone.freeOverCents;
   if (qualifies && (rates.length === 0 || deliveryResolved)) {
-    options.unshift({ label: FREE_SHIPPING_LABEL, amountCents: 0 });
+    options.unshift({
+      label: FREE_SHIPPING_LABEL,
+      amountCents: 0,
+      ...(servicePointResolved && !otherDeliveryResolved ? { servicePoint: true } : {}),
+    });
   }
 
   return { shipmentWeightGrams, options, omitted, missingWeight };

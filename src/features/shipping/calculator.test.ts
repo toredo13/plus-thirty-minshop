@@ -197,6 +197,59 @@ describe('weight bands', () => {
   });
 });
 
+describe('parcel-shop delivery', () => {
+  it('is a shipped delivery option even when product weight is unknown', () => {
+    const config: ShippingConfig = {
+      enabled: true,
+      zones: [{
+        countries: ['DK'],
+        rates: [{ label: 'GLS Parcel Shop', pricing: { type: 'service_point', amountCents: 3900 } }],
+        freeOverCents: null,
+      }],
+    };
+    const quote = quoteShipping(config, { subtotalCents: 1000, country: 'DK', itemWeightGrams: null });
+    expect(quote.options).toEqual([{
+      label: 'GLS Parcel Shop',
+      amountCents: 3900,
+      servicePoint: true,
+    }]);
+    expect(quote.omitted).toEqual([]);
+  });
+
+  it('keeps the parcel-shop requirement on free shipping in a parcel-shop-only zone', () => {
+    const config: ShippingConfig = {
+      enabled: true,
+      zones: [{
+        countries: ['DK'],
+        rates: [{ label: 'GLS Parcel Shop', pricing: { type: 'service_point', amountCents: 3900 } }],
+        freeOverCents: 10000,
+      }],
+    };
+    const quote = quoteShipping(config, { subtotalCents: 12000, country: 'DK', itemWeightGrams: null });
+    expect(quote.options[0]).toEqual({
+      label: FREE_SHIPPING_LABEL,
+      amountCents: 0,
+      servicePoint: true,
+    });
+  });
+
+  it('counts as delivery for free-shipping thresholds, unlike local pickup', () => {
+    const config: ShippingConfig = {
+      enabled: true,
+      zones: [{
+        countries: ['DK'],
+        rates: [{ label: 'GLS Parcel Shop', pricing: { type: 'service_point', amountCents: 3900 } }],
+        freeOverCents: 10000,
+      }],
+    };
+    const quote = quoteShipping(config, { subtotalCents: 12000, country: 'DK', itemWeightGrams: null });
+    expect(quote.options).toEqual([
+      { label: FREE_SHIPPING_LABEL, amountCents: 0 },
+      { label: 'GLS Parcel Shop', amountCents: 3900, servicePoint: true },
+    ]);
+  });
+});
+
 describe('local pickup', () => {
   const pickupZone: ShippingConfig = {
     enabled: true,

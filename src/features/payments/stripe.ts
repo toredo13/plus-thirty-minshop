@@ -51,35 +51,84 @@ export function createStripeProvider(
 
   return {
     async createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult> {
+      const selected = params.selectedShipping;
+      const selectedAddress = selected?.address;
+      const servicePoint = selectedAddress?.servicePoint ?? null;
+      const selectedShippingMetadata = selected && selectedAddress
+        ? {
+            shipping_cents: String(selected.amountCents),
+            shipping_label: selected.label.slice(0, 500),
+            shipping_delivery_method: selected.deliveryMethod,
+            ship_to_name: (selectedAddress.name ?? '').slice(0, 500),
+            ship_to_line1: (selectedAddress.line1 ?? '').slice(0, 500),
+            ship_to_line2: (selectedAddress.line2 ?? '').slice(0, 500),
+            ship_to_city: (selectedAddress.city ?? '').slice(0, 500),
+            ship_to_state: (selectedAddress.state ?? '').slice(0, 500),
+            ship_to_postal: (selectedAddress.postal ?? '').slice(0, 500),
+            ship_to_country: (selectedAddress.country ?? '').slice(0, 2),
+            ship_to_phone: (selectedAddress.phone ?? '').slice(0, 100),
+            ...(servicePoint && {
+              service_point_id: servicePoint.id.slice(0, 100),
+              service_point_name: servicePoint.name.slice(0, 200),
+              service_point_street: servicePoint.street.slice(0, 200),
+              service_point_zip: servicePoint.zip.slice(0, 20),
+              service_point_city: servicePoint.city.slice(0, 100),
+              service_point_carrier: servicePoint.carrier,
+            }),
+            ...(selected.weightGrams != null && {
+              shipping_weight_grams: String(selected.weightGrams),
+            }),
+          }
+        : {};
+      const shippingLineItem = selected
+        ? [{
+            price_data: {
+              currency: params.lineItems[0]?.currency ?? 'dkk',
+              unit_amount: selected.amountCents,
+              ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
+              product_data: { name: `Shipping — ${selected.label}` },
+            },
+            quantity: 1,
+          }]
+        : [];
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
         // Keep the hosted session within the inventory reservation window.
         expires_at: Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_TTL_SECONDS,
-        line_items: params.lineItems.map((li) => ({
-          price_data: {
-            currency: li.currency,
-            unit_amount: li.amountCents,
-            // Stripe Tax requires a tax_behavior on inline prices; 'exclusive' =
-            // tax added on top of the listed price (typical for US).
-            ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
-            product_data: {
-              name: li.name,
-              ...(li.imageUrl && { images: [li.imageUrl] }),
+        line_items: [
+          ...params.lineItems.map((li) => ({
+            price_data: {
+              currency: li.currency,
+              unit_amount: li.amountCents,
+              // Stripe Tax requires a tax_behavior on inline prices; 'exclusive' =
+              // tax added on top of the listed price (typical for US).
+              ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
+              product_data: {
+                name: li.name,
+                ...(li.imageUrl && { images: [li.imageUrl] }),
+              },
             },
-          },
-          quantity: li.quantity,
-        })),
+            quantity: li.quantity,
+          })),
+          ...shippingLineItem,
+        ],
         success_url: params.successUrl,
         cancel_url: params.cancelUrl,
-        ...((params.metadata || params.shipping?.shipmentWeightGrams != null) && {
+        ...(selected?.email && { customer_email: selected.email }),
+        ...((params.metadata || params.shipping?.shipmentWeightGrams != null || selected) && {
           metadata: {
             ...(params.metadata ?? {}),
-            // Stripe picks the rate AFTER the session exists, so the weight it was
-            // priced at has to travel with the session to reach the order.
+            // Stripe picks a hosted rate only for the legacy static-shipping path.
             ...(params.shipping?.shipmentWeightGrams != null && {
               shipping_weight_grams: String(params.shipping.shipmentWeightGrams),
             }),
+            ...selectedShippingMetadata,
           },
+        }),
+        ...(selected && params.automaticTax && {
+          // Automatic Tax needs a billing location. Delivery address is already
+          // collected by Minshop and is preserved in metadata with the parcel shop.
+          billing_address_collection: 'required' as const,
         }),
         ...(params.allowPromotionCodes && { allow_promotion_codes: true }),
         ...(params.automaticTax && { automatic_tax: { enabled: true } }),
@@ -182,15 +231,23 @@ export function createStripeProvider(
         // version — try the newer `collected_information` first).
         // `total_details.amount_shipping` is the reliable field on completed
         // sessions; `shipping_cost` is often undefined unless expanded.
-        const shippingCents =
-          session.total_details?.amount_shipping ?? session.shipping_cost?.amount_total ?? 0;
-        // WHICH service the customer picked is only knowable after the fact: the
-        // rate is chosen on Stripe's page. `display_name` is the label we sent as
-        // `shipping_rate_data.display_name`, so no duplicate metadata is needed.
-        let shippingLabel: string | null = null;
-        let deliveryMethod: 'pickup' | 'shipping' | 'unknown' | null = null;
+        const metadataShippingCents = Number(session.metadata?.shipping_cents);
+        const hasMetadataShippingCents =
+          session.metadata?.shipping_cents != null &&
+          session.metadata.shipping_cents !== '' &&
+          Number.isSafeInteger(metadataShippingCents) &&
+          metadataShippingCents >= 0;
+        const shippingCents = hasMetadataShippingCents
+          ? metadataShippingCents
+          : session.total_details?.amount_shipping ?? session.shipping_cost?.amount_total ?? 0;
+        let shippingLabel: string | null = session.metadata?.shipping_label ?? null;
+        const savedDeliveryMethod = session.metadata?.shipping_delivery_method;
+        let deliveryMethod: 'pickup' | 'shipping' | 'unknown' | null =
+          savedDeliveryMethod === 'pickup' || savedDeliveryMethod === 'shipping'
+            ? savedDeliveryMethod
+            : null;
         const rateRef = session.shipping_cost?.shipping_rate;
-        if (typeof rateRef === 'string') {
+        if (!savedDeliveryMethod && typeof rateRef === 'string') {
           try {
             const rate = await stripe.shippingRates.retrieve(rateRef);
             shippingLabel = rate.display_name ?? null;
@@ -198,11 +255,10 @@ export function createStripeProvider(
           } catch {
             // A missing rate must not fail an otherwise valid paid order — but
             // the MODE cannot be guessed either: the customer may have chosen
-            // pickup. 'unknown' blocks label purchase until reconciled, where
-            // a null would have been coalesced into a delivery order.
+            // pickup. 'unknown' blocks label purchase until reconciled.
             deliveryMethod = 'unknown';
           }
-        } else if (rateRef && typeof rateRef === 'object') {
+        } else if (!savedDeliveryMethod && rateRef && typeof rateRef === 'object') {
           shippingLabel = rateRef.display_name ?? null;
           deliveryMethod = classifyRateDelivery(rateRef.metadata);
         }
@@ -224,7 +280,34 @@ export function createStripeProvider(
           (session as unknown as { shipping_details?: ShippingDetails }).shipping_details ??
           null;
         const a = sd?.address;
-        const shippingAddress = a
+        const metadata = session.metadata ?? {};
+        const servicePointCarrier = metadata.service_point_carrier;
+        const servicePoint = metadata.service_point_id &&
+          (servicePointCarrier === 'gls' || servicePointCarrier === 'postnord' || servicePointCarrier === 'dao')
+          ? {
+              id: metadata.service_point_id,
+              name: metadata.service_point_name ?? '',
+              street: metadata.service_point_street ?? '',
+              zip: metadata.service_point_zip ?? '',
+              city: metadata.service_point_city ?? '',
+              carrier: servicePointCarrier,
+            }
+          : null;
+        const hasMetadataAddress = !!(metadata.ship_to_line1 || metadata.ship_to_name || metadata.ship_to_postal);
+        const metadataShippingAddress = hasMetadataAddress
+          ? {
+              name: metadata.ship_to_name || null,
+              line1: metadata.ship_to_line1 || null,
+              line2: metadata.ship_to_line2 || null,
+              city: metadata.ship_to_city || null,
+              state: metadata.ship_to_state || null,
+              postal: metadata.ship_to_postal || null,
+              country: metadata.ship_to_country || null,
+              phone: metadata.ship_to_phone || null,
+              servicePoint,
+            }
+          : null;
+        const shippingAddress = metadataShippingAddress ?? (a
           ? {
               name: sd?.name ?? null,
               line1: a.line1 ?? null,
@@ -234,7 +317,7 @@ export function createStripeProvider(
               postal: a.postal_code ?? null,
               country: a.country ?? null,
             }
-          : null;
+          : null);
 
         const paymentIntentId =
           typeof session.payment_intent === 'string'
