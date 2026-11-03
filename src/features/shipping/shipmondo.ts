@@ -70,7 +70,7 @@ function messageFrom(value: unknown, fallback: string): string {
   return fallback;
 }
 
-function productFrom(value: unknown): ShipmondoProduct | null {
+function productFrom(value: unknown, countryCode: string): ShipmondoProduct | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
   const carrier = raw.carrier && typeof raw.carrier === 'object'
@@ -155,9 +155,15 @@ function productFrom(value: unknown): ShipmondoProduct | null {
           : [];
       })
     : [];
-  const availableInCountry = countryCombinations.length === 0 || countryCombinations.some((combination) =>
-    combination.shipmondo_agreement_available !== false,
-  );
+  const matchingCountryCombinations = countryCombinations.filter((combination) => {
+    const sender = String(combination.sender_country_code ?? '').toUpperCase();
+    const receiver = String(combination.receiver_country_code ?? '').toUpperCase();
+    return (!sender || sender === countryCode.toUpperCase()) &&
+      (!receiver || receiver === countryCode.toUpperCase());
+  });
+  const availableInCountry = matchingCountryCombinations.length === 0
+    ? countryCombinations.length === 0
+    : matchingCountryCombinations.some((combination) => combination.shipmondo_agreement_available !== false);
 
   return {
     code,
@@ -220,7 +226,12 @@ export async function fetchShipmondoProducts(
   if (!Array.isArray(list)) {
     return { ok: false, error: 'Shipmondo returned a product list in an unexpected format.' };
   }
-  return { ok: true, value: list.map(productFrom).filter((p): p is ShipmondoProduct => p !== null && p.available) };
+  return {
+    ok: true,
+    value: list
+      .map((product) => productFrom(product, countryCode))
+      .filter((product): product is ShipmondoProduct => product !== null && product.available),
+  };
 }
 
 /** Build a Shipmondo shipment payload. This only books after an explicit admin action. */
