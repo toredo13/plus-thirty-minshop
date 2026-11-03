@@ -7,6 +7,7 @@ import type {
 } from './provider';
 import { STRIPE_CHECKOUT_TTL_SECONDS } from './provider';
 import { stripeAllowedCountries } from './stripeCountries.ts';
+import type { ShippingServicePoint } from '../orders/db';
 
 /**
  * The delivery mode a chosen Stripe rate encodes. Session creation stamps every
@@ -282,7 +283,7 @@ export function createStripeProvider(
         const a = sd?.address;
         const metadata = session.metadata ?? {};
         const servicePointCarrier = metadata.service_point_carrier;
-        const servicePoint = metadata.service_point_id &&
+        const servicePoint: ShippingServicePoint | null = metadata.service_point_id &&
           (servicePointCarrier === 'gls' || servicePointCarrier === 'postnord' || servicePointCarrier === 'dao')
           ? {
               id: metadata.service_point_id,
@@ -290,7 +291,7 @@ export function createStripeProvider(
               street: metadata.service_point_street ?? '',
               zip: metadata.service_point_zip ?? '',
               city: metadata.service_point_city ?? '',
-              carrier: servicePointCarrier,
+              carrier: servicePointCarrier as ShippingServicePoint['carrier'],
             }
           : null;
         const hasMetadataAddress = !!(metadata.ship_to_line1 || metadata.ship_to_name || metadata.ship_to_postal);
