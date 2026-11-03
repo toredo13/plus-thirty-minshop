@@ -36,3 +36,30 @@ export function isForbiddenFormOrigin(request: Request, url: URL): boolean {
 
   return !(request.method === 'POST' && isCapabilityPayPath(url.pathname));
 }
+
+
+const CART_HANDOFF_ORIGINS = new Set([
+  'https://plusthirty.dk',
+  'https://www.plusthirty.dk',
+  'https://greek-goods-nordic-market.lovable.app',
+]);
+
+/**
+ * The retail storefront transfers only slugs and quantities to Minshop.
+ * Allow that one cross-origin form action from the known Plus Thirty origins;
+ * all product, price, stock and order data is still resolved server-side.
+ */
+export async function isAllowedCartImportHandoff(request: Request, url: URL): Promise<boolean> {
+  if (request.method !== 'POST' || url.pathname !== '/api/cart') return false;
+
+  const origin = request.headers.get('origin');
+  if (!origin || !CART_HANDOFF_ORIGINS.has(origin)) return false;
+  if (!hasFormContentType(request.headers.get('content-type'))) return false;
+
+  try {
+    const form = await request.clone().formData();
+    return form.get('_action') === 'import';
+  } catch {
+    return false;
+  }
+}
