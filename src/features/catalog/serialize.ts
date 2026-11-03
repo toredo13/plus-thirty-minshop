@@ -20,6 +20,7 @@ export interface CatalogExtra {
 export interface CatalogProduct {
   id: string;
   slug: string;
+  source_handle: string | null;
   name: string;
   description: string | null;
   price: { amount: number; cents: number; currency: string };
@@ -65,6 +66,7 @@ export function toCatalogProduct(
   const out: CatalogProduct = {
     id: requirePublicId(p.public_id, p.id, 'product'),
     slug: p.slug,
+    source_handle: p.source_handle ?? null,
     name: p.name,
     description: p.description,
     price: money(p.price_cents, p.currency),
