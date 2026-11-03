@@ -461,6 +461,10 @@ const willEmailCustomer =
                           <input name="from_phone" type="tel" value={(shipFrom as Partial<ShipFrom & { phone: string }>).phone ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
                         </label>
                         <label class="block sm:col-span-2">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Customer mobile (required by some products)</span>
+                          <input name="receiver_phone" type="tel" value={ship?.phone ?? ''} class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block sm:col-span-2">
                           <span class="block text-xs uppercase tracking-widest text-gray-400">Packed parcel weight ({weightUnit})</span>
                           <input name="parcel_weight" value={parcelWeightValue || parcelDefault.weight || ''} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
                         </label>
