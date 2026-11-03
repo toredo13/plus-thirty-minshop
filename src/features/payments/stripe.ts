@@ -7,6 +7,7 @@ import type {
 } from './provider';
 import { STRIPE_CHECKOUT_TTL_SECONDS } from './provider';
 import { stripeAllowedCountries } from './stripeCountries.ts';
+import { stripeTaxPriceOptions } from './stripeTax';
 import type { ShippingServicePoint } from '../orders/db';
 
 /**
@@ -86,7 +87,7 @@ export function createStripeProvider(
             price_data: {
               currency: params.lineItems[0]?.currency ?? 'dkk',
               unit_amount: selected.amountCents,
-              ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
+              ...stripeTaxPriceOptions(params.automaticTax),
               product_data: { name: `Shipping — ${selected.label}` },
             },
             quantity: 1,
@@ -103,7 +104,7 @@ export function createStripeProvider(
               unit_amount: li.amountCents,
               // Stripe Tax requires a tax_behavior on inline prices; 'exclusive' =
               // tax added on top of the listed price (typical for US).
-              ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
+              ...stripeTaxPriceOptions(params.automaticTax),
               product_data: {
                 name: li.name,
                 ...(li.imageUrl && { images: [li.imageUrl] }),
@@ -152,7 +153,7 @@ export function createStripeProvider(
               // prose: settlement reads this back to record delivery_method
               // without parsing "Local pickup" out of display text.
               metadata: { delivery: o.pickup ? 'pickup' : 'shipping' },
-              ...(params.automaticTax && { tax_behavior: 'exclusive' as const }),
+              ...stripeTaxPriceOptions(params.automaticTax),
             },
           })),
         }),
