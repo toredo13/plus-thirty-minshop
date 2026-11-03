@@ -16,6 +16,7 @@ import { quoteShipping, allowedCountries, hasCatchAllZone } from '../features/sh
 import { countryOptions, countryName, isCountryCode } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
+import { findPickupPoints, isPickupCarrier, type PickupCarrier, type PickupPoint } from '../features/shipping/pickupPoints';
 import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
 import {
@@ -46,7 +47,7 @@ const fld = (name: string) => (form?.get(name) ?? '').toString().trim();
  * The rail arrives as a query param on the first hop and as a hidden field across
  * the address → shipping steps (the forms post to a bare /checkout).
  */
-const IN_APP_RAILS = ['lightning', 'opennode', 'demo'] as const;
+const IN_APP_RAILS = ['lightning', 'opennode', 'demo', 'stripe'] as const;
 type InAppRail = (typeof IN_APP_RAILS)[number];
 const requestedRail = (fld('method') || Astro.url.searchParams.get('method') || '').trim();
 const rail: InAppRail = (IN_APP_RAILS as readonly string[]).includes(requestedRail)
@@ -162,6 +163,7 @@ const RAIL_LABEL: Record<InAppRail, string> = {
   lightning: 'Pay with Lightning',
   opennode: 'Pay with Bitcoin',
   demo: 'Place demo order',
+  stripe: 'Pay by card',
 };
 
 /**
@@ -192,10 +194,13 @@ const addr = {
   state: fld('state') || (prefill?.state ?? ''),
   postal: fld('postal') || (prefill?.postal ?? ''),
   country: (fld('country') || prefill?.country || geoDefault || knownCountries[0] || 'US').toUpperCase(),
+  phone: fld('phone'),
 };
 
 let stage: 'address' | 'shipping' = 'address';
 let options: { label: string; amountCents: number; pickup?: boolean }[] = [];
+let selectedPickupPoint: PickupPoint | null = null;
+let selectedPickupCarrier: PickupCarrier | null = null;
 const errors: string[] = [];
 
 // Demo submits itself: the sample address on the first GET, no typing.
@@ -249,6 +254,26 @@ if (submitted) {
         if (!chosen) {
           errors.push('Please choose a shipping option.');
         } else {
+          if (chosen.pickup) {
+            const carrier = fld('pickup_carrier');
+            const pointId = fld('pickup_point_id');
+            if (!isPickupCarrier(carrier) || !pointId) {
+              errors.push('Choose a parcel shop before continuing.');
+            } else {
+              const lookup = await findPickupPoints(env.DB, carrier, addr.postal, addr.line1);
+              if (!lookup.ok) {
+                errors.push(lookup.error);
+              } else {
+                selectedPickupPoint = lookup.points.find((point) => point.id === pointId) ?? null;
+                if (!selectedPickupPoint) {
+                  errors.push('That parcel shop could not be verified. Search again and choose a listed parcel shop.');
+                } else {
+                  selectedPickupCarrier = carrier;
+                }
+              }
+            }
+          }
+          if (errors.length === 0) {
           // Finalize: mint the invoice for subtotal + the chosen shipping.
           // Claim the order's public identity + guest credential BEFORE the
           // provider handoff: the ord_ id ties reservation → pending payment →
@@ -286,6 +311,8 @@ if (submitted) {
               state: addr.state || null,
               postal: addr.postal,
               country: addr.country,
+              phone: addr.phone || null,
+              servicePoint: selectedPickupPoint,
             };
             const itemsJson = JSON.stringify(
               lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
@@ -357,6 +384,7 @@ if (submitted) {
                   : 'That payment method is temporarily unavailable. Please try again in a moment, or choose another.',
               );
             }
+          }
           }
         }
       }
