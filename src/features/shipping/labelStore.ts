@@ -125,7 +125,6 @@ export async function recordQuote(
          status = 'quoted',
          rate_id = NULL,
          transaction_id = NULL,
-         provider = NULL,
          service = NULL,
          amount_cents = NULL,
          tracking_number = NULL,
