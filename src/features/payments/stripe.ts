@@ -102,8 +102,9 @@ export function createStripeProvider(
             price_data: {
               currency: li.currency,
               unit_amount: li.amountCents,
-              // Stripe Tax requires a tax_behavior on inline prices; 'exclusive' =
-              // tax added on top of the listed price (typical for US).
+              // Danish consumer prices include VAT. When Stripe Tax is enabled,
+              // the shared helper extracts tax from the displayed amount instead
+              // of adding VAT on top.
               ...stripeTaxPriceOptions(params.automaticTax),
               product_data: {
                 name: li.name,
