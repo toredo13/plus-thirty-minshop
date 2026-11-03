@@ -115,6 +115,14 @@ const canShipmondoLabel =
   order.status === 'paid' &&
   order.delivery_method === 'shipping' &&
   (!labelRecord || labelRecord.provider === 'Shipmondo' || labelRecord.status === 'failed');
+if (canShipmondoLabel && !canLabel) {
+  try {
+    shipFrom = JSON.parse((await getSetting(env.DB, 'ship_from')) ?? '{}');
+  } catch {}
+  try {
+    parcelDefault = JSON.parse((await getSetting(env.DB, 'parcel_default')) ?? '{}');
+  } catch {}
+}
 let shipmondoProducts: ShipmondoProduct[] = [];
 let shipmondoProductsError: string | null = null;
 const shipmondoCountry = (() => {
