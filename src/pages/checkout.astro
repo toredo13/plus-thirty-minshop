@@ -701,7 +701,7 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
     });
 
     pickupForm.addEventListener('submit', (event) => {
-      if (selectedRate()?.dataset.shippingPickup === '1' && !pickupPointId.value) {
+      if (selectedRate()?.dataset.shippingServicePoint === '1' && !pickupPointId.value) {
         event.preventDefault();
         pickupMessage.textContent = 'Please search and select a parcel shop before continuing.';
         pickupSection.hidden = false;
