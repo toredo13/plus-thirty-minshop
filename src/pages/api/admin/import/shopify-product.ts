@@ -206,10 +206,20 @@ export const POST: APIRoute = async ({ request }) => {
       console.error('Shopify import search indexing failed:', err);
     }
 
-    await purgeCacheTags([
-      CACHE_TAG.catalog,
-      ...(created?.public_id ? [CACHE_TAG.product(created.public_id)] : []),
-    ]);
+    // Catalogue writes are committed before this point. Cache invalidation is a
+    // performance concern, not part of the import transaction. Do not report a
+    // saved product as failed when Workers Cache is unavailable or disabled.
+    try {
+      await purgeCacheTags([
+        CACHE_TAG.catalog,
+        ...(created?.public_id ? [CACHE_TAG.product(created.public_id)] : []),
+      ]);
+    } catch (error) {
+      console.warn(
+        'Shopify import saved successfully; cache invalidation was unavailable:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     return json({ status: 'imported', name, slug, imageCount: imageIds.length });
   } catch (error) {
