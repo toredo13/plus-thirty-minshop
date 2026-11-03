@@ -11,6 +11,35 @@ This branch is the production Minshop backend for Plus Thirty.
 - Approved wholesale accounts, customer-specific pricing, and wholesale order submission remain on the existing authenticated Supabase flow.
 - The Shopify CSV importer is available in Admin; the catalogue is not considered migrated until the owner uploads the exported CSV and the imported products are reviewed.
 
+## Lovable retail cart handoff
+
+The customer-facing domain and storefront remain on Lovable. Set a Lovable-side
+environment value such as `MINSHOP_ORIGIN` to the deployed Minshop Worker origin.
+Use the actual Worker hostname from Cloudflare; do not point this value at
+`plusthirty.dk`, because that domain continues to serve the Lovable storefront.
+
+When the shopper checks out from Lovable, submit a normal top-level form POST to
+`${MINSHOP_ORIGIN}/api/cart` (not a cross-origin JavaScript fetch). The form fields are:
+
+- `_action=import`
+- `items=[{"slug":"product-slug","quantity":2}]` (JSON string; one row per product)
+
+Minshop sets its own HttpOnly cart cookie and replies with a 303 redirect to its
+`/cart` page. The shopper then completes address, shipping, payment, and order
+steps on Minshop. Do not send prices, stock values, or discount calculations in
+the handoff: Minshop resolves current products, prices, and availability from D1.
+
+The only permitted browser origins for this handoff are
+`https://plusthirty.dk`, `https://www.plusthirty.dk`, and
+`https://greek-goods-nordic-market.lovable.app`. Keep this allowlist exact; do not
+replace it with a wildcard. The import accepts 1–50 products and quantities up to
+99. Products requiring a Minshop variant selection are rejected with HTTP 409;
+the storefront must show an error rather than silently losing the selection.
+
+Wholesale checkout is separate: approved wholesale users and their customer-specific
+pricing continue through the existing authenticated Supabase flow, not this retail
+cart handoff.
+
 ## Go-live gates
 - Shipping remains disabled until Danish delivery rates are configured and the Shipmondo lookup has been verified with the owner's API credentials.
 - Card / Bitcoin / Lightning payment methods must be configured and verified before customers are allowed to make live payments.
