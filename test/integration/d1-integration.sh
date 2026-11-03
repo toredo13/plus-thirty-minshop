@@ -388,6 +388,47 @@ node -e '
   if (body.count !== 1) throw new Error(`expected cart count 1, got ${body.count}`);
 ' "$cart_count_json"
 
+# The legacy Lovable storefront must establish a Minshop-owned cart with a
+# tightly allowlisted cross-origin handoff. Only slugs and quantities cross the
+# boundary; Minshop resolves price, availability, and stock from D1.
+for handoff_origin in \
+  'https://plusthirty.dk' \
+  'https://www.plusthirty.dk' \
+  'https://greek-goods-nordic-market.lovable.app'
+do
+  handoff_jar="$state_dir/handoff-$(printf '%s' "$handoff_origin" | tr -cd '[:alnum:]').txt"
+  handoff_status="$(curl --max-time 30 --silent --output /dev/null --write-out '%{http_code}' \
+    --cookie-jar "$handoff_jar" \
+    -H 'content-type: application/x-www-form-urlencoded' \
+    -H "origin: $handoff_origin" \
+    --data-urlencode '_action=import' \
+    --data-urlencode 'items=[{"slug":"sample-tee","quantity":2}]' \
+    "http://127.0.0.1:$test_port/api/cart")"
+  if [[ "$handoff_status" != "303" ]]; then
+    echo "D1 integration failed: trusted cart handoff from $handoff_origin returned HTTP $handoff_status" >&2
+    exit 1
+  fi
+  handoff_count="$(curl --max-time 30 --fail --silent --show-error \
+    --cookie "$handoff_jar" \
+    "http://127.0.0.1:$test_port/partials/cart-count")"
+  node -e '
+    const body = JSON.parse(process.argv[1]);
+    if (body.count !== 2) throw new Error(`expected imported cart count 2, got ${body.count}`);
+  ' "$handoff_count"
+done
+
+# A random external site must not be able to create a shopper's cart.
+untrusted_handoff_status="$(curl --max-time 30 --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -H 'origin: https://attacker.example' \
+  --data-urlencode '_action=import' \
+  --data-urlencode 'items=[{"slug":"sample-tee","quantity":2}]' \
+  "http://127.0.0.1:$test_port/api/cart")"
+if [[ "$untrusted_handoff_status" != "403" ]]; then
+  echo "D1 integration failed: untrusted cart handoff returned HTTP $untrusted_handoff_status (expected 403)" >&2
+  exit 1
+fi
+
 cart_fragment="$(curl --max-time 30 --fail --silent --show-error \
   --cookie "$cookie_jar" \
   "http://127.0.0.1:$test_port/partials/cart")"
