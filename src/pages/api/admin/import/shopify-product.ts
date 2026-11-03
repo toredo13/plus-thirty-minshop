@@ -13,7 +13,7 @@ import {
   setProductCategories,
 } from '../../../../features/categories/db';
 import { uniqueCategorySlug } from '../../../../features/categories/slug';
-import { uniqueSlug } from '../../../../features/products/slug';
+import { uniqueSlug, slugify } from '../../../../features/products/slug';
 import { indexProduct } from '../../../../features/search';
 import { validateUpload, uploadMedia } from '../../../../features/media/upload';
 import { optimizeUpload } from '../../../../features/products/imageOptimize';
@@ -88,11 +88,9 @@ function cleanDescription(value: string | undefined): string | null {
 }
 
 async function ensureCategory(name: string, parentId: number | null): Promise<number> {
-  const base = parentId === null ? name : `shopify-${name}`;
-  const candidate = parentId === null
-    ? await getCategoryBySlug(env.DB, await uniqueCategorySlug(env.DB, name))
-    : null;
-  if (candidate && candidate.parent_id === null) return candidate.id;
+  const base = parentId === null ? name : `shopify-${parentId}-${name}`;
+  const preferred = await getCategoryBySlug(env.DB, slugify(base));
+  if (preferred && preferred.parent_id === parentId) return preferred.id;
 
   const slug = await uniqueCategorySlug(env.DB, base);
   const existing = await getCategoryBySlug(env.DB, slug);
