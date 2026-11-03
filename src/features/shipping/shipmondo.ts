@@ -130,7 +130,11 @@ function productFrom(value: unknown, countryCode: string): ShipmondoProduct | nu
     if (typeof fields === 'string' && fields) return [fields];
     return [];
   });
-  const directRequiredFields = Array.isArray(raw.required_fields) ? raw.required_fields.map(String) : [];
+  const directRequiredFields = Array.isArray(raw.required_fields)
+    ? raw.required_fields.map(String)
+    : typeof raw.required_fields === 'string' && raw.required_fields
+      ? [raw.required_fields]
+      : [];
   const combinationRequiredFields = countryCombinations.flatMap((combination) =>
     Array.isArray(combination.required_fields) ? combination.required_fields.map(String) : [],
   );
@@ -161,9 +165,15 @@ function productFrom(value: unknown, countryCode: string): ShipmondoProduct | nu
     return (!sender || sender === countryCode.toUpperCase()) &&
       (!receiver || receiver === countryCode.toUpperCase());
   });
-  const availableInCountry = matchingCountryCombinations.length === 0
-    ? countryCombinations.length === 0
-    : matchingCountryCombinations.some((combination) => combination.shipmondo_agreement_available !== false);
+  const destination = raw.destination_country && typeof raw.destination_country === 'object'
+    ? raw.destination_country as Record<string, unknown>
+    : null;
+  const destinationCode = String(destination?.code ?? '').toUpperCase();
+  const availableInCountry = destinationCode && destinationCode !== countryCode.toUpperCase()
+    ? false
+    : matchingCountryCombinations.length === 0
+      ? countryCombinations.length === 0
+      : matchingCountryCombinations.some((combination) => combination.shipmondo_agreement_available !== false);
 
   return {
     code,
@@ -195,7 +205,8 @@ export async function fetchShipmondoProducts(
   let response: Response;
   try {
     const url = new URL(`${BASE}/products`);
-    url.searchParams.set('country_code', countryCode.toUpperCase());
+    url.searchParams.set('sender_country_code', 'DK');
+    url.searchParams.set('receiver_country_code', countryCode.toUpperCase());
     response = await fetch(url, {
       headers: {
         authorization: auth(username, key),
