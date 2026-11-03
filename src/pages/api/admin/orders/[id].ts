@@ -470,7 +470,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     return notice(`Shipmondo shipment ${shipmentId} recovered. Tracking ${found.value.trackingNumber} recorded. ${willEmail ? 'The tracking email has been queued.' : 'No customer email will be sent.'}`);
   }
 
-  // ── Shipping labels ────────────────────────────────────────────────────────  // ── Shipping labels ────────────────────────────────────────────────────────
+  // ── Shipping labels ────────────────────────────────────────────────────────
   // Buying moves money on the merchant's Shippo account, so every step runs
   // through the shipping_labels state machine: one row per order, conditional
   // claims, and an explicit human gate for ambiguous outcomes. The shipment id
