@@ -60,8 +60,12 @@ The only permitted browser origins for this handoff are
 `https://plusthirty.dk`, `https://www.plusthirty.dk`, and
 `https://greek-goods-nordic-market.lovable.app`. Keep this allowlist exact; do not
 replace it with a wildcard. The import accepts 1–50 products and quantities up to
-99. Products requiring a Minshop variant selection are rejected with HTTP 409;
-the storefront must show an error rather than silently losing the selection.
+99. Products with active variants must include the selected Minshop `variant_id`
+public ID; Minshop validates that it belongs to the product and rejects missing
+or foreign selections with HTTP 409. Optional add-ons can be passed as
+`extra_ids` and are validated the same way. Never pass client prices or stock.
+The current Lovable cart sends only slugs and quantities, so variant selection
+must be wired into its cart handoff before variant-backed items are published.
 
 Wholesale checkout is separate: approved wholesale users and their customer-specific
 pricing continue through the existing authenticated Supabase flow, not this retail
