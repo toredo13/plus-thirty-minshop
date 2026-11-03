@@ -117,8 +117,16 @@ const canShipmondoLabel =
   (!labelRecord || labelRecord.provider === 'Shipmondo' || labelRecord.status === 'failed');
 let shipmondoProducts: ShipmondoProduct[] = [];
 let shipmondoProductsError: string | null = null;
+const shipmondoCountry = (() => {
+  try {
+    const address = JSON.parse(order.ship_address ?? '{}') as { country?: string };
+    return address.country?.toUpperCase() || 'DK';
+  } catch {
+    return 'DK';
+  }
+})();
 if (canShipmondoLabel && shipmondoUser && shipmondoKey && labelRecord?.status !== 'purchasing' && labelRecord?.status !== 'uncertain') {
-  const response = await fetchShipmondoProducts(shipmondoUser, shipmondoKey, ship?.country ?? 'DK');
+  const response = await fetchShipmondoProducts(shipmondoUser, shipmondoKey, shipmondoCountry);
   if (response.ok) shipmondoProducts = response.value;
   else shipmondoProductsError = response.error;
 }
