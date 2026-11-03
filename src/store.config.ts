@@ -2,8 +2,8 @@ import type { DeepPartial, SiteConfig } from './config';
 
 /**
  * Plus Thirty store settings.
- * Shipping stays fail-closed until the Shipmondo integration is implemented
- * and tested; no checkout should offer an unconfigured carrier rate.
+ * Shipping remains off until the Shipmondo integration and Danish rates
+ * are implemented and verified end-to-end.
  */
 export const storeOverrides: DeepPartial<SiteConfig> = {
   storeName: 'Plus Thirty',
@@ -15,14 +15,7 @@ export const storeOverrides: DeepPartial<SiteConfig> = {
     accounts: false,
   },
   shipping: {
-    enabled: true,
-    zones: [
-      {
-        name: 'Denmark',
-        countries: ['DK'],
-        rates: [],
-        freeOverCents: null,
-      },
-    ],
+    enabled: false,
+    zones: [],
   },
 };
