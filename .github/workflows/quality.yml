@@ -1,0 +1,38 @@
+name: Minshop quality checks
+
+on:
+  pull_request:
+    branches:
+      - plus-thirty-v020
+  push:
+    branches:
+      - plus-thirty-v020
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test
+
+      - name: Run Astro and TypeScript checks
+        run: npm run check
+
+      - name: Build Cloudflare Worker
+        run: npm run build
