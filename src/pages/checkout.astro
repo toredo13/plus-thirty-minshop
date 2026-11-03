@@ -254,9 +254,9 @@ if (submitted) {
         if (!chosen) {
           errors.push('Please choose a shipping option.');
         } else {
-          if (chosen.pickup) {
+          if (chosen.servicePoint) {
             if (addr.country !== 'DK') {
-              errors.push('Parcel-shop selection is currently available for Danish delivery addresses only.');
+              errors.push('Parcel-shop delivery is currently available for Danish delivery addresses only.');
             } else {
               const carrier = fld('pickup_carrier');
               const pointId = fld('pickup_point_id');
@@ -401,7 +401,7 @@ const postedShippingLabel = fld('shipping_label');
 const initialShippingLabel = options.some((option) => option.label === postedShippingLabel)
   ? postedShippingLabel
   : (options[0]?.label ?? '');
-const initialPickupRequired = options.find((option) => option.label === initialShippingLabel)?.pickup === true;
+const initialPickupRequired = options.find((option) => option.label === initialShippingLabel)?.servicePoint === true;
 const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier')) ? fld('pickup_carrier') as PickupCarrier : 'gls';
 ---
 
@@ -473,7 +473,7 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
                     name="shipping_label"
                     value={o.label}
                     checked={o.label === initialShippingLabel || (!initialShippingLabel && i === 0)}
-                    data-shipping-pickup={o.pickup ? '1' : '0'}
+                    data-shipping-service-point={o.servicePoint ? '1' : '0'}
                   />
                   {o.label}
                 </span>
@@ -485,7 +485,7 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
             ))}
           </fieldset>
 
-          {options.some((option) => option.pickup) && (
+          {options.some((option) => option.servicePoint) && (
             <section id="pickup-point-picker" class="rounded-lg border border-line bg-surface p-4 space-y-3" hidden={!initialPickupRequired}>
               <div>
                 <h2 class="font-medium text-sm">Choose a parcel shop</h2>
@@ -624,7 +624,7 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
       }
     };
     const syncPickupVisibility = () => {
-      const needsPoint = selectedRate()?.dataset.shippingPickup === '1';
+      const needsPoint = selectedRate()?.dataset.shippingServicePoint === '1';
       pickupSection.hidden = !needsPoint;
       if (!needsPoint) clearPoint();
     };
