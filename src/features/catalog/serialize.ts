@@ -3,9 +3,7 @@ import type { ProductVariant, ProductExtra } from '../products/variants';
 import { productImageUrl } from '../products/image';
 import { toMajorUnits } from '../../money';
 
-/** A purchasable variant in catalog form (price in both major + minor units). */
 export interface CatalogVariant {
-  /** Prefixed public ID (`var_…`) — never a row ID. */
   id: string;
   label: string;
   price: { amount: number; cents: number; currency: string };
@@ -13,39 +11,24 @@ export interface CatalogVariant {
   sku: string | null;
 }
 
-/** A checkbox add-on in catalog form — a price delta layered on the line. */
 export interface CatalogExtra {
-  /** Prefixed public ID (`xtra_…`) — never a row ID. */
   id: string;
   label: string;
   price_delta: { amount: number; cents: number; currency: string };
 }
 
-/**
- * The public, machine-readable shape of a product — what the `/api/products`
- * catalog endpoints return for agents/tools. Stable, self-describing, with
- * ABSOLUTE urls so a consumer needs no base-url knowledge. Pure (no bindings) so
- * it's unit-testable and reusable across the list + detail routes.
- *
- * `variant_label` flags products that have a variant group (so a list consumer
- * knows to fetch the detail). `variants`/`extras` are populated only on the
- * detail route — the list stays lightweight.
- *
- * Availability is exposed as `in_stock` only — NOT an exact count. A public,
- * pollable browse endpoint that returned exact quantities would leak sales
- * velocity (poll over time, watch it drop). Agents get the precise remaining
- * amount transactionally, in the checkout stock-shortfall error, not here.
- */
 export interface CatalogProduct {
-  /** Prefixed public ID (`prod_…`) — never a row ID. */
   id: string;
   slug: string;
+  source_handle: string | null;
   name: string;
   description: string | null;
   price: { amount: number; cents: number; currency: string };
   in_stock: boolean;
   variant_label: string | null;
   categories: string[];
+  /** Original Shopify tags retained for the existing storefront subcategory filters. */
+  tags: string[];
   image: string;
   url: string;
   variants?: CatalogVariant[];
@@ -53,17 +36,23 @@ export interface CatalogProduct {
 }
 
 const money = (cents: number, currency: string) => ({
-  amount: toMajorUnits(cents, currency), // major units (e.g. 24.0)
-  cents, // minor units (Stripe-style)
+  amount: toMajorUnits(cents, currency),
+  cents,
   currency: currency.toUpperCase(),
 });
 
-/**
- * Serialize a product (+ its category names) into the catalog shape. Pass
- * `options.variants`/`options.extras` (detail route) to embed them; when variants
- * are present they are the inventory unit, so top-level `in_stock` derives from
- * them rather than the product row.
- */
+function sourceTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((tag): tag is string => typeof tag === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export function toCatalogProduct(
   p: Product,
   categoryNames: string[],
@@ -77,15 +66,16 @@ export function toCatalogProduct(
   const out: CatalogProduct = {
     id: requirePublicId(p.public_id, p.id, 'product'),
     slug: p.slug,
+    source_handle: p.source_handle ?? null,
     name: p.name,
     description: p.description,
     price: money(p.price_cents, p.currency),
-    // With variants, availability comes from them (the variant is the SKU).
     in_stock: hasVariants ? variants!.some((v) => v.stock > 0) : p.stock > 0,
     variant_label: p.variant_label,
     categories: categoryNames,
+    tags: sourceTags(p.source_tags),
     image: new URL(productImageUrl(p.image_key, options?.imageBaseUrl ?? ''), origin).href,
-    url: new URL(`/products/${p.slug}`, origin).href,
+    url: new URL('/products/' + p.slug, origin).href,
   };
 
   if (variants) {
@@ -107,12 +97,7 @@ export function toCatalogProduct(
   return out;
 }
 
-/**
- * A row reaching a public serializer without its public ID is a deploy-order
- * bug (backfill must run before cutover) — fail loudly rather than leak the
- * numeric row ID.
- */
 export function requirePublicId(publicId: string | null, rowId: number, kind: string): string {
-  if (!publicId) throw new Error(`${kind} row ${rowId} has no public_id — run the backfill`);
+  if (!publicId) throw new Error(kind + ' row ' + rowId + ' has no public_id — run the backfill');
   return publicId;
 }
