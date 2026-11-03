@@ -12,8 +12,8 @@ describe('parseCartImportItems', () => {
     ).toEqual({
       ok: true,
       items: [
-        { slug: 'feta', quantity: 5 },
-        { slug: 'gyros', quantity: 1 },
+        { slug: 'feta', quantity: 5, variantId: null, extraIds: [] },
+        { slug: 'gyros', quantity: 1, variantId: null, extraIds: [] },
       ],
     });
   });
@@ -43,6 +43,45 @@ describe('parseCartImportItems', () => {
     for (const item of invalidItems) {
       expect(parseCartImportItems(JSON.stringify([item])).ok).toBe(false);
     }
+  });
+
+  it('preserves variant selections and combines only matching variant/extra lines', () => {
+    const result = parseCartImportItems(JSON.stringify([
+      { slug: 'feta', quantity: 2, variant_id: 'var_abcdefghjk' },
+      { slug: 'feta', quantity: 1, variant_id: 'var_abcdefghjk' },
+      { slug: 'feta', quantity: 4, variant_id: 'var_0123456789' },
+      { slug: 'feta', quantity: 1, variant_id: 'var_abcdefghjk', extra_ids: ['xtra_abcdefghjk'] },
+    ]));
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        { slug: 'feta', quantity: 3, variantId: 'var_abcdefghjk', extraIds: [] },
+        { slug: 'feta', quantity: 4, variantId: 'var_0123456789', extraIds: [] },
+        { slug: 'feta', quantity: 1, variantId: 'var_abcdefghjk', extraIds: ['xtra_abcdefghjk'] },
+      ],
+    });
+  });
+
+  it('normalizes and deduplicates extra IDs', () => {
+    expect(parseCartImportItems(JSON.stringify([
+      { slug: 'feta', quantity: 1, extra_ids: ['xtra_abcdefghjk', 'xtra_abcdefghjk'] },
+    ]))).toMatchObject({
+      ok: true,
+      items: [{ extraIds: ['xtra_abcdefghjk'] }],
+    });
+  });
+
+  it('rejects invalid variant and extra public IDs', () => {
+    expect(parseCartImportItems(JSON.stringify([
+      { slug: 'feta', quantity: 1, variant_id: 'prod_abcdefghjk' },
+    ]))).toMatchObject({ ok: false });
+    expect(parseCartImportItems(JSON.stringify([
+      { slug: 'feta', quantity: 1, extra_ids: ['var_abcdefghjk'] },
+    ]))).toMatchObject({ ok: false });
+    expect(parseCartImportItems(JSON.stringify([
+      { slug: 'feta', quantity: 1, extra_ids: Array(21).fill('xtra_abcdefghjk') },
+    ]))).toMatchObject({ ok: false });
   });
 
   it('rejects duplicate quantities above the cart limit', () => {
