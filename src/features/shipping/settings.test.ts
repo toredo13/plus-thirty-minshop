@@ -87,6 +87,26 @@ describe('parseRuntimeShippingConfig', () => {
     );
     expect(parsed.status).toBe('invalid');
   });
+  it('rejects parcel-shop pricing in a pre-v4 document', () => {
+    const legacy = doc({
+      schema: 3,
+      zones: [{
+        ...doc().zones[0]!,
+        rates: [{ label: 'Parcel shop', pricing: { type: 'service_point', amountCents: 500 } }],
+      }],
+    });
+    expect(parseRuntimeShippingConfig(JSON.stringify(legacy)).status).toBe('invalid');
+  });
+  it('accepts parcel-shop pricing in schema 4', () => {
+    const current = doc({
+      zones: [{
+        ...doc().zones[0]!,
+        rates: [{ label: 'Parcel shop', pricing: { type: 'service_point', amountCents: 500 } }],
+      }],
+    });
+    const parsed = parseRuntimeShippingConfig(JSON.stringify(current));
+    expect(parsed.status).toBe('valid');
+  });
   it('normalizes a schema 1 flat rate in memory', () => {
     const legacy = {
       schema: 1,
@@ -297,6 +317,15 @@ describe('validateShippingDocument', () => {
     });
     expect(messages(bands)).toContain('Each band must be heavier than the one above it.');
   });
+  it('accepts a parcel-shop rate as a priced delivery method', () => {
+    const config = doc({
+      zones: [{
+        ...doc().zones[0]!,
+        rates: [{ label: 'GLS parcel shop', pricing: { type: 'service_point', amountCents: 450 } }],
+      }],
+    });
+    expect(messages(config)).toEqual([]);
+  });
   it('allows no maximum only on the final band', () => {
     const bands = doc({
       zones: [
@@ -494,6 +523,24 @@ describe('parseShippingForm', () => {
     const { document, errors } = parseShippingForm(form, { currency: 'usd', unit: 'g' });
     expect(errors).toEqual([]);
     expect(document.zones[0]!.rates[0]!.pricing).toEqual({ type: 'pickup', amountCents: 0 });
+  });
+  it('parses a parcel-shop delivery rate from the editor', () => {
+    const form = new TestForm()
+      .set('enabled', '1')
+      .set('revision', '1')
+      .set('zone_order', 'z_a')
+      .set('zone[z_a][name]', 'Denmark')
+      .set('zone[z_a][countries][]', 'DK')
+      .set('zone[z_a][rate_order]', 'r_1')
+      .set('zone[z_a][rate][r_1][label]', 'GLS Parcel Shop')
+      .set('zone[z_a][rate][r_1][mode]', 'service_point')
+      .set('zone[z_a][rate][r_1][amount]', '39');
+    const { document, errors } = parseShippingForm(form, { currency: 'dkk', unit: 'g' });
+    expect(errors).toEqual([]);
+    expect(document.zones[0]!.rates[0]!.pricing).toEqual({
+      type: 'service_point',
+      amountCents: 3900,
+    });
   });
   it('scales amounts by the currency, not by a hardcoded 100', () => {
     const { document } = parseShippingForm(submitted(), { currency: 'jpy', unit: 'g' });
