@@ -109,8 +109,12 @@ function productFrom(value: unknown): ShipmondoProduct | null {
     ),
   ].map((item) => String(item)).filter(Boolean);
 
-  const weightIntervals = Array.isArray(raw.weight_intervals)
-    ? raw.weight_intervals.flatMap((item) => {
+  const countryWeightIntervals = countryCombinations.flatMap((combination) =>
+    Array.isArray(combination.weight_intervals) ? combination.weight_intervals : [],
+  );
+  const rawWeightIntervals = Array.isArray(raw.weight_intervals) ? raw.weight_intervals : countryWeightIntervals;
+  const weightIntervals = rawWeightIntervals.length > 0
+    ? rawWeightIntervals.flatMap((item) => {
         if (!item || typeof item !== 'object') return [];
         const interval = item as Record<string, unknown>;
         const fromWeight = Number(interval.from_weight ?? interval.min ?? interval.from);
@@ -120,6 +124,9 @@ function productFrom(value: unknown): ShipmondoProduct | null {
           : [];
       })
     : [];
+  const availableInCountry = countryCombinations.length === 0 || countryCombinations.some((combination) =>
+    combination.shipmondo_agreement_available !== false,
+  );
 
   return {
     code,
@@ -130,12 +137,13 @@ function productFrom(value: unknown): ShipmondoProduct | null {
     requiredServices: [...new Set([...required, ...requiredFromAvailable])],
     requiredFields: [...new Set(requiredFieldValues)],
     servicePointProduct: raw.service_point_product === true ||
+      countryCombinations.some((combination) => combination.service_point_product === true) ||
       raw.service_point_required === true ||
       raw.service_point === true ||
       /parcel ?shop|pakkeshop|service ?point|pickup/i.test(
         `${raw.name ?? ''} ${raw.description ?? ''}`,
       ),
-    available: raw.available !== false,
+    available: raw.available !== false && availableInCountry,
     weightIntervals,
     raw,
   };
