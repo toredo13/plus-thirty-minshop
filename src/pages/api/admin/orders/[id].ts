@@ -364,6 +364,24 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     if (!availableProducts.ok) return fail(`Could not load Shipmondo products: ${availableProducts.error}`);
     const product = availableProducts.value.find((candidate) => candidate.code === productCode);
     if (!product) return fail('That Shipmondo product is no longer available. Reload the order and choose another product.');
+    if (
+      product.weightIntervals.length > 0 &&
+      !product.weightIntervals.some((interval) =>
+        parsedWeight.grams >= interval.fromWeight && parsedWeight.grams <= interval.toWeight,
+      )
+    ) {
+      const ranges = product.weightIntervals
+        .map((interval) => `${interval.fromWeight}–${interval.toWeight} g`)
+        .join(', ');
+      return fail(`This product does not accept the entered parcel weight. Allowed weights: ${ranges}.`);
+    }
+    const receiverPhone = String(form.get('receiver_phone') ?? recipient.phone ?? '').trim();
+    if (product.requiredFields.includes('receiver_mobile') && !receiverPhone) {
+      return fail('This Shipmondo product requires the customer’s mobile number. Enter it before booking.');
+    }
+    if (product.requiredFields.includes('receiver_email') && !existing.email) {
+      return fail('This Shipmondo product requires the customer’s email address.');
+    }
     const servicePointId = servicePointFromOrder(existing);
     if (servicePointId && !product.servicePointProduct) {
       return fail('This order has a selected parcel shop, but the chosen Shipmondo product does not support service points.');
@@ -401,7 +419,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         city: recipient.city,
         country_code: recipient.country.toUpperCase(),
         ...(existing.email ? { email: existing.email } : {}),
-        ...(recipient.phone ? { phone: recipient.phone } : {}),
+        ...(receiverPhone ? { mobile: receiverPhone } : {}),
       },
       weightGrams: parsedWeight.grams,
       servicePointId,
