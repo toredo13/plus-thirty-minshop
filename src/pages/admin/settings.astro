@@ -336,7 +336,7 @@ if (Astro.request.method === 'POST') {
         { status: 502, headers: { 'Cache-Control': 'no-store' } },
       );
     }
-
+  } else if (action === 'save_shipmondo') {
     await applySecrets(['shipmondo_api_user', 'shipmondo_api_key']);
   } else if (action === 'save_shippo') {
     await applySecrets(['shippo_api_key']);
