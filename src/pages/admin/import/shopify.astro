@@ -76,6 +76,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 
   button?.addEventListener('click', async () => {
     if (!parsed || button.disabled) return;
+    const products = parsed.products;
     button.disabled = true;
     input!.disabled = true;
     errors!.replaceChildren();
@@ -83,9 +84,9 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
     let skipped = 0;
     let failed = 0;
 
-    for (let i = 0; i < parsed.products.length; i += 1) {
-      const product = parsed.products[i];
-      progress!.textContent = `Importing ${i + 1} of ${parsed.products.length}: ${product.name}`;
+    for (let i = 0; i < products.length; i += 1) {
+      const product = products[i];
+      progress!.textContent = `Importing ${i + 1} of ${products.length}: ${product.name}`;
       try {
         const response = await fetch('/api/admin/import/shopify-product', {
           method: 'POST',
@@ -102,7 +103,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
         li.textContent = `${product.name}: ${error instanceof Error ? error.message : 'Import failed'}`;
         errors!.append(li);
       }
-      progress!.textContent = `Processed ${i + 1} / ${parsed.products.length} — imported: ${imported}, already present: ${skipped}, errors: ${failed}`;
+      progress!.textContent = `Processed ${i + 1} / ${products.length} — imported: ${imported}, already present: ${skipped}, errors: ${failed}`;
     }
 
     progress!.textContent = `Finished — imported ${imported}, already present ${skipped}, errors ${failed}.`;
