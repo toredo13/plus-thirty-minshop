@@ -6,6 +6,8 @@ import {
   getShipmondoLabelPdf,
   getShipmondoShipment,
   shipmondoCarrierCode,
+  servicePointFromOrder,
+  servicePointCarrierFromOrder,
 } from './shipmondo';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -144,6 +146,24 @@ describe('Shipmondo adapter', () => {
     const result = await getShipmondoLabelPdf('api-user', 'api-key', '1168');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.headers.get('content-type')).toContain('application/pdf');
+  });
+
+  it('reads the selected parcel shop from the saved order address', () => {
+    const order = {
+      ship_address: JSON.stringify({
+        name: 'Customer',
+        servicePoint: {
+          id: '95892',
+          name: '7-Eleven Odense C',
+          street: 'Vestergade 89',
+          zip: '5000',
+          city: 'Odense C',
+          carrier: 'postnord',
+        },
+      }),
+    };
+    expect(servicePointFromOrder(order as never)).toBe('95892');
+    expect(servicePointCarrierFromOrder(order as never)).toBe('postnord');
   });
 
   it('maps Danish carrier codes without inventing a tracking URL', () => {
