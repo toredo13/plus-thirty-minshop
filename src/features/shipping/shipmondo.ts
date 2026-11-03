@@ -177,7 +177,7 @@ function productFrom(value: unknown, countryCode: string): ShipmondoProduct | nu
       countryCombinations.some((combination) => combination.service_point_product === true) ||
       raw.service_point_required === true ||
       raw.service_point === true ||
-      /parcel ?shop|pakkeshop|service ?point|pickup/i.test(
+      /parcel ?shop|pakkeshop|service ?point|pickup|shop ?delivery|shopdelivery|collect/i.test(
         `${raw.name ?? ''} ${raw.description ?? ''}`,
       ),
     available: raw.available !== false && availableInCountry,
