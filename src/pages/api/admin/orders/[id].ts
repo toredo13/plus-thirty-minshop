@@ -399,7 +399,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
     const reference = `Plus Thirty ${existing.public_id}`;
     const syntheticShipmentId = `shipmondo-pending-${existing.public_id}`;
-    if (!(await recordQuote(env.DB, id, syntheticShipmentId))) {
+    if (!(await recordQuote(env.DB, id, syntheticShipmentId, 'Shipmondo'))) {
       return fail('This order already has a label purchase in progress, or is no longer eligible for a shipping label.');
     }
     const claim = await claimPurchase(env.DB, id, productCode);
@@ -419,7 +419,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         city: recipient.city,
         country_code: recipient.country.toUpperCase(),
         ...(existing.email ? { email: existing.email } : {}),
-        ...(receiverPhone ? { mobile: receiverPhone } : {}),
+        ...(receiverPhone ? { phone: receiverPhone } : {}),
       },
       weightGrams: parsedWeight.grams,
       servicePointId,
