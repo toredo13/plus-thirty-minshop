@@ -96,7 +96,7 @@ const labelUncertain =
   labelRecord?.status === 'uncertain' ||
   (labelRecord?.status === 'purchasing' && isPurchaseStale(labelRecord));
 let shipFrom: Partial<ShipFrom> = {};
-let parcelDefault: Partial<{ length: number; width: number; height: number }> = {};
+let parcelDefault: Partial<{ length: number; width: number; height: number; weight: string }> = {};
 if (canLabel) {
   try {
     shipFrom = JSON.parse((await getSetting(env.DB, 'ship_from')) ?? '{}');
@@ -373,7 +373,103 @@ const willEmailCustomer =
         </div>
       ) : (
         <div class="space-y-6">
-          {canLabel && (
+          {(canShipmondoLabel || labelRecord?.provider === 'Shipmondo') && (
+            <div class="mb-4 rounded-md border border-line bg-white/60 p-4 text-sm">
+              <p class="mb-3 text-xs uppercase tracking-widest text-gray-400">Shipmondo shipping label</p>
+              {labelRecord?.provider === 'Shipmondo' && labelInFlight ? (
+                <p class="rounded-md border border-line bg-paper px-3 py-2 text-gray-600">
+                  Shipmondo is processing the label booking. Refresh this order in a moment.
+                </p>
+              ) : labelRecord?.provider === 'Shipmondo' && labelUncertain ? (
+                <div class="space-y-3">
+                  <p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                    Shipmondo did not return a clear result. The shipment may already be booked. Find its shipment ID in Shipmondo and reconcile it here before trying again.
+                  </p>
+                  <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-2">
+                    <input type="hidden" name="_action" value="label_reconcile_shipmondo" />
+                    <label class="block">
+                      <span class="block text-xs uppercase tracking-widest text-gray-400">Shipmondo shipment ID</span>
+                      <input name="shipmondo_shipment_id" required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                    </label>
+                    <button type="submit" class="rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
+                      Reconcile Shipmondo label
+                    </button>
+                  </form>
+                </div>
+              ) : labelRecord?.provider === 'Shipmondo' && labelRecord.status === 'purchased' ? (
+                <div class="space-y-2">
+                  <p>Shipmondo label booked · tracking <span class="font-medium tabular-nums">{labelRecord.tracking_number}</span></p>
+                  {labelRecord.label_url && <a href={labelRecord.label_url} target="_blank" rel="noopener" class="text-accent hover:underline">Open shipping label (PDF)</a>}
+                </div>
+              ) : (
+                <Fragment>
+                  {shipmondoProductsError && <p class="mb-3 text-red-700">{shipmondoProductsError}</p>}
+                  {shipmondoProducts.length === 0 ? (
+                    <p class="text-xs text-gray-500">No Shipmondo shipping products were returned for {shipmondoCountry}. Check the API access and carrier agreements in Shipmondo.</p>
+                  ) : (
+                    <form method="POST" action={`/api/admin/orders/${order.public_id}`} class="space-y-3">
+                      <input type="hidden" name="_action" value="buy_shipmondo_label" />
+                      <label class="block">
+                        <span class="block text-xs uppercase tracking-widest text-gray-400">Carrier product</span>
+                        <select name="product_code" required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2">
+                          <option value="">Choose a Shipmondo product</option>
+                          {shipmondoProducts.map((product) => (
+                            <option value={product.code}>{product.carrierName ? `${product.carrierName} — ` : ''}{product.name}{product.servicePointProduct ? ' (parcel shop)' : ''}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {shipmondoProducts.some((product) => product.servicePointProduct) && (
+                        <label class="flex items-start gap-2 text-xs text-gray-600">
+                          <input type="checkbox" name="automatic_service_point" value="1" checked class="mt-0.5" />
+                          <span>For parcel-shop products, let Shipmondo automatically choose the nearest pickup point when this order has no selected point.</span>
+                        </label>
+                      )}
+                      <div class="grid gap-3 sm:grid-cols-2">
+                        <label class="block sm:col-span-2">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Ship from — name</span>
+                          <input name="from_name" value={shipFrom.name ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block sm:col-span-2">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Street</span>
+                          <input name="from_street1" value={shipFrom.street1 ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">City</span>
+                          <input name="from_city" value={shipFrom.city ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Postal code</span>
+                          <input name="from_zip" value={shipFrom.zip ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Country code</span>
+                          <input name="from_country" value={shipFrom.country ?? 'DK'} required maxlength="2" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2 uppercase" />
+                        </label>
+                        <label class="block">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Email</span>
+                          <input name="from_email" type="email" value={(shipFrom as Partial<ShipFrom & { email: string }>).email ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block sm:col-span-2">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Phone</span>
+                          <input name="from_phone" type="tel" value={(shipFrom as Partial<ShipFrom & { phone: string }>).phone ?? ''} required class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                        <label class="block sm:col-span-2">
+                          <span class="block text-xs uppercase tracking-widest text-gray-400">Packed parcel weight ({weightUnit})</span>
+                          <input name="parcel_weight" value={parcelWeightValue || parcelDefault.weight || ''} required inputmode="decimal" class="mt-1 w-full rounded-md border border-line bg-paper px-3 py-2" />
+                        </label>
+                      </div>
+                      <button type="submit" class="rounded-md bg-brand px-5 py-2 font-medium text-white hover:bg-brand-hover">
+                        Book Shipmondo label
+                      </button>
+                      <p class="text-xs text-gray-500">Booking creates a real shipment in Shipmondo and may charge your Shipmondo account. The order is marked fulfilled and tracking is saved after Shipmondo confirms the booking.</p>
+                    </form>
+                  )}
+                </Fragment>
+              )}
+            </div>
+          )}
+
+          {canLabel && (          {canLabel && (
             <div class="rounded-md border border-line bg-white/60 p-4 text-sm">
               <p class="mb-3 text-xs uppercase tracking-widest text-gray-400">Buy shipping label</p>
               {labelInFlight ? (
