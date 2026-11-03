@@ -21,6 +21,7 @@ import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
 import {
   DEMO_CHECKOUT_TTL_SECONDS,
+  STRIPE_CHECKOUT_TTL_SECONDS,
   isMethodAvailable,
   getPaymentProvider,
 } from '../features/payments';
@@ -200,7 +201,6 @@ const addr = {
 let stage: 'address' | 'shipping' = 'address';
 let options: { label: string; amountCents: number; pickup?: boolean }[] = [];
 let selectedPickupPoint: PickupPoint | null = null;
-let selectedPickupCarrier: PickupCarrier | null = null;
 const errors: string[] = [];
 
 // Demo submits itself: the sample address on the first GET, no typing.
@@ -268,7 +268,6 @@ if (submitted) {
                 if (!selectedPickupPoint) {
                   errors.push('That parcel shop could not be verified. Search again and choose a listed parcel shop.');
                 } else {
-                  selectedPickupCarrier = carrier;
                 }
               }
             }
@@ -290,7 +289,9 @@ if (submitted) {
           const reservationTtl =
             rail === 'demo'
               ? DEMO_CHECKOUT_TTL_SECONDS
-              : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
+              : rail === 'stripe'
+                ? STRIPE_CHECKOUT_TTL_SECONDS
+                : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
           const reserved = await reserveInventory(
             env.DB,
             publicId,
