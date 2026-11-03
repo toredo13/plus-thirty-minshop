@@ -299,12 +299,11 @@ const willEmailCustomer =
             {labelRecord.provider} {labelRecord.service}
             {labelRecord.amount_cents != null && <> · {formatPrice(labelRecord.amount_cents)}</>}
             {' '}· tracking <span class="tabular-nums">{labelRecord.tracking_number}</span>
-            {' '}· Shippo transaction <code class="text-xs">{labelRecord.transaction_id}</code>
+            {' '}· provider reference <code class="text-xs">{labelRecord.transaction_id}</code>
           </p>
           <p class="mb-2">
             The order changed state (refunded or fulfilled another way) while this label was being
-            bought, so its tracking was not applied. The charge is real — void the label in Shippo
-            if it won’t be used.
+            bought, so its tracking was not applied. The charge is real — check the label in the provider dashboard if it won’t be used.
           </p>
           {labelRecord.label_url && (
             <a href={labelRecord.label_url} target="_blank" rel="noopener" class="font-medium underline">
@@ -315,7 +314,7 @@ const willEmailCustomer =
       )
     }
     {
-      !canLabel && labelUncertain && labelRecord && (
+      !canLabel && labelUncertain && labelRecord && labelRecord.provider !== 'Shipmondo' && (
         <div class="mb-4 space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
           <p>
             A label purchase for this order did not complete cleanly
