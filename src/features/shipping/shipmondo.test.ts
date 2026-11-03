@@ -32,6 +32,9 @@ describe('Shipmondo adapter', () => {
     const result = await fetchShipmondoProducts('api-user', 'api-key', 'DK');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    const requestUrl = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(requestUrl.searchParams.get('sender_country_code')).toBe('DK');
+    expect(requestUrl.searchParams.get('receiver_country_code')).toBe('DK');
     expect(result.value[0]).toMatchObject({
       code: 'GLSDK_SD',
       carrierCode: 'gls',
@@ -57,6 +60,7 @@ describe('Shipmondo adapter', () => {
         type: 'receiver', name: 'Customer', address1: 'Road 2',
         postal_code: '1000', city: 'Copenhagen', country_code: 'DK',
         email: 'customer@example.dk',
+        mobile: '50607080',
       },
       weightGrams: 1250,
       servicePointId: '1234',
@@ -66,6 +70,7 @@ describe('Shipmondo adapter', () => {
     expect(payload.product_code).toBe('GLSDK_SD');
     expect(payload.service_codes).toBe('EMAIL_NT');
     expect(payload.service_point_id).toBe('1234');
+    expect((payload.parties as Array<Record<string, unknown>>)[1].mobile).toBe('50607080');
     expect(payload.automatic_select_service_point).toBe(false);
     expect(payload.parcels).toEqual([{ weight: 1250 }]);
   });
