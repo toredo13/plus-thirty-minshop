@@ -6,6 +6,7 @@ import { getProductByPublicId, getProductBySlug } from '../../features/products/
 import { listVariants, getExtrasByPublicIds } from '../../features/products/variants';
 import { parsePublicId } from '../../features/ids/publicId.ts';
 import { getStoreSettings } from '../../features/settings/db';
+import { parseCartImportItems } from '../../features/cart/import';
 
 export const prerender = false;
 
@@ -25,40 +26,11 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   // This top-level form POST establishes Minshop's HttpOnly cart cookie on its
   // own domain before the shopper reaches checkout.
   if (action === 'import') {
-    const raw = String(form.get('items') ?? '');
-    if (!raw || raw.length > 64 * 1024) {
-      return new Response('Invalid cart payload.', { status: 400 });
-    }
-    let items: unknown;
-    try {
-      items = JSON.parse(raw);
-    } catch {
-      return new Response('Invalid cart payload.', { status: 400 });
-    }
-    if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
-      return new Response('Cart must contain between 1 and 50 products.', { status: 400 });
-    }
-
-    const normalized = new Map<string, number>();
-    for (const item of items) {
-      if (!item || typeof item !== 'object') {
-        return new Response('Invalid cart item.', { status: 400 });
-      }
-      const row = item as Record<string, unknown>;
-      const slug = typeof row.slug === 'string' ? row.slug.trim() : '';
-      const quantity = Number(row.quantity);
-      if (!slug || slug.length > 200 || !Number.isInteger(quantity) || quantity < 1 || quantity > CART_QTY_MAX) {
-        return new Response('Invalid product or quantity in cart.', { status: 400 });
-      }
-      const next = (normalized.get(slug) ?? 0) + quantity;
-      if (next > CART_QTY_MAX) {
-        return new Response('The quantity for a product exceeds the cart limit.', { status: 400 });
-      }
-      normalized.set(slug, next);
-    }
+    const parsed = parseCartImportItems(String(form.get('items') ?? ''));
+    if (!parsed.ok) return new Response(parsed.error, { status: 400 });
 
     const importedCart: Record<string, number> = {};
-    for (const [slug, quantity] of normalized) {
+    for (const { slug, quantity } of parsed.items) {
       const product = await getProductBySlug(env.DB, slug);
       if (!product || product.active !== 1 || !product.public_id) {
         return new Response('Product unavailable: ' + slug, { status: 409 });
