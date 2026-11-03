@@ -102,12 +102,43 @@ function productFrom(value: unknown): ShipmondoProduct | null {
   const countryCombinations = Array.isArray(raw.country_combinations)
     ? raw.country_combinations.filter((item) => item && typeof item === 'object') as Record<string, unknown>[]
     : [];
-  const requiredFieldValues = [
-    ...(Array.isArray(raw.required_fields) ? raw.required_fields : []),
+  const allRequiredServices = [
+    ...required,
     ...countryCombinations.flatMap((combination) =>
-      Array.isArray(combination.required_fields) ? combination.required_fields : [],
+      Array.isArray(combination.required_services)
+        ? combination.required_services.map((item) => {
+            if (typeof item === 'string') return item;
+            if (item && typeof item === 'object') {
+              const service = item as Record<string, unknown>;
+              return String(service.code ?? service.service_code ?? '');
+            }
+            return '';
+          }).filter(Boolean)
+        : [],
     ),
-  ].map((item) => String(item)).filter(Boolean);
+  ];
+  const serviceRequiredFields = [
+    ...(Array.isArray(raw.required_services) ? raw.required_services : []),
+    ...countryCombinations.flatMap((combination) =>
+      Array.isArray(combination.required_services) ? combination.required_services : [],
+    ),
+  ].flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const service = item as Record<string, unknown>;
+    const fields = service.required_fields;
+    if (Array.isArray(fields)) return fields.map(String);
+    if (typeof fields === 'string' && fields) return [fields];
+    return [];
+  });
+  const directRequiredFields = Array.isArray(raw.required_fields) ? raw.required_fields.map(String) : [];
+  const combinationRequiredFields = countryCombinations.flatMap((combination) =>
+    Array.isArray(combination.required_fields) ? combination.required_fields.map(String) : [],
+  );
+  const requiredFieldValues = [...new Set([
+    ...directRequiredFields,
+    ...combinationRequiredFields,
+    ...serviceRequiredFields,
+  ].filter(Boolean))];
 
   const countryWeightIntervals = countryCombinations.flatMap((combination) =>
     Array.isArray(combination.weight_intervals) ? combination.weight_intervals : [],
@@ -134,7 +165,7 @@ function productFrom(value: unknown): ShipmondoProduct | null {
     carrierCode: String(carrier.code ?? raw.carrier_code ?? '').toLowerCase(),
     carrierName: String(carrier.name ?? raw.carrier_name ?? carrier.code ?? ''),
     description: String(raw.description ?? ''),
-    requiredServices: [...new Set([...required, ...requiredFromAvailable])],
+    requiredServices: [...new Set([...allRequiredServices, ...requiredFromAvailable])],
     requiredFields: [...new Set(requiredFieldValues)],
     servicePointProduct: raw.service_point_product === true ||
       countryCombinations.some((combination) => combination.service_point_product === true) ||
