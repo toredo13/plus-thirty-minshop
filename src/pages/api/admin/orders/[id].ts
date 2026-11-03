@@ -55,6 +55,7 @@ import {
   getShipmondoShipment,
   shipmondoCarrierCode,
   servicePointFromOrder,
+  servicePointCarrierFromOrder,
 } from '../../../../features/shipping/shipmondo';
 import { toGrams } from '../../../../features/shipping/weight';
 
@@ -383,8 +384,16 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
       return fail('This Shipmondo product requires the customer’s email address.');
     }
     const servicePointId = servicePointFromOrder(existing);
+    const servicePointCarrier = servicePointCarrierFromOrder(existing);
     if (servicePointId && !product.servicePointProduct) {
       return fail('This order has a selected parcel shop, but the chosen Shipmondo product does not support service points.');
+    }
+    if (
+      servicePointId &&
+      servicePointCarrier &&
+      shipmondoCarrierCode(product.carrierCode || product.carrierName) !== servicePointCarrier
+    ) {
+      return fail(`The selected parcel shop belongs to ${servicePointCarrier.toUpperCase()}. Choose a matching Shipmondo product.`);
     }
     if (product.servicePointProduct && !servicePointId && form.get('automatic_service_point') !== '1') {
       return fail('Confirm automatic selection of the nearest parcel shop, or select a service point in checkout first.');
