@@ -12,7 +12,7 @@ import {
   deleteGuestAccessIfUnsettled,
 } from '../features/orders/guestAccess';
 import { lineUnitPriceCents } from '../features/cart/key';
-import { quoteShipping, allowedCountries, hasCatchAllZone } from '../features/shipping/calculator';
+import { quoteShipping, allowedCountries, hasCatchAllZone, type ShippingOption } from '../features/shipping/calculator';
 import { countryOptions, countryName, isCountryCode } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
@@ -44,7 +44,8 @@ const fld = (name: string) => (form?.get(name) ?? '').toString().trim();
  * the address itself, after the session is created.
  *
  * Gate on the chosen rail being AVAILABLE (configured), not on it being the
- * default, so the method picker can route here whatever the store's default is.
+ * default. Every in-app rail collects the destination here before payment so
+ * Minshop can validate Danish parcel-shop selections and preserve them on orders.
  * The rail arrives as a query param on the first hop and as a hidden field across
  * the address → shipping steps (the forms post to a bare /checkout).
  */
@@ -199,7 +200,7 @@ const addr = {
 };
 
 let stage: 'address' | 'shipping' = 'address';
-let options: { label: string; amountCents: number; pickup?: boolean }[] = [];
+let options: ShippingOption[] = [];
 let selectedPickupPoint: PickupPoint | null = null;
 const errors: string[] = [];
 
