@@ -216,6 +216,23 @@ describe('parcel-shop delivery', () => {
     expect(quote.omitted).toEqual([]);
   });
 
+  it('keeps the parcel-shop requirement on free shipping in a parcel-shop-only zone', () => {
+    const config: ShippingConfig = {
+      enabled: true,
+      zones: [{
+        countries: ['DK'],
+        rates: [{ label: 'GLS Parcel Shop', pricing: { type: 'service_point', amountCents: 3900 } }],
+        freeOverCents: 10000,
+      }],
+    };
+    const quote = quoteShipping(config, { subtotalCents: 12000, country: 'DK', itemWeightGrams: null });
+    expect(quote.options[0]).toEqual({
+      label: FREE_SHIPPING_LABEL,
+      amountCents: 0,
+      servicePoint: true,
+    });
+  });
+
   it('counts as delivery for free-shipping thresholds, unlike local pickup', () => {
     const config: ShippingConfig = {
       enabled: true,
