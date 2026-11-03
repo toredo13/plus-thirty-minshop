@@ -24,6 +24,12 @@
       "simple": { "limit": 60, "period": 60 }
     }
   ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSION",
+      "id": "eaa10d6b1ce64c9da8e300c856867ff8"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
