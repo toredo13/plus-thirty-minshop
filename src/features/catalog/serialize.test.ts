@@ -36,6 +36,22 @@ describe('toCatalogProduct', () => {
     expect(c).not.toHaveProperty('stock');
   });
 
+  it('preserves the original Shopify handle and source tags for the custom storefront', () => {
+    const imported = {
+      ...base,
+      source_handle: 'feta-pdo-900g',
+      source_tags: JSON.stringify(['sub:feta', 'sub:hvid-ost']),
+    };
+    const catalog = toCatalogProduct(imported, ['Mejeriprodukter'], ORIGIN);
+    expect(catalog.source_handle).toBe('feta-pdo-900g');
+    expect(catalog.tags).toEqual(['sub:feta', 'sub:hvid-ost']);
+  });
+
+  it('returns an empty tag list when legacy source tags are missing or malformed', () => {
+    expect(toCatalogProduct(base, [], ORIGIN).tags).toEqual([]);
+    expect(toCatalogProduct({ ...base, source_tags: '{bad' }, [], ORIGIN).tags).toEqual([]);
+  });
+
   it('reports price in both major and minor units, currency upper-cased', () => {
     expect(toCatalogProduct(base, [], ORIGIN).price).toEqual({
       amount: 24,
