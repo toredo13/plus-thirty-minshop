@@ -1,16 +1,6 @@
-import { PUBLIC_CACHE_CONTROL } from '../../features/cache/public';
-
-// Permanent redirect to the plural canonical URL. See product/[slug].astro for
-// the rationale; category listing moved from /category/<slug> to
-// /categories/<slug>. The query string is preserved so sort/dir/page survive.
-const destination = new URL(
-  `/categories/${Astro.params.slug}${Astro.url.search}`,
-  Astro.url,
-);
-return new Response(null, {
-  status: 301,
-  headers: {
-    location: destination.href,
-    'cache-control': PUBLIC_CACHE_CONTROL,
-  },
-});
+---
+ // Permanent redirect to the plural canonical URL. See product/[slug].astro for
+ // the rationale; category listing moved from /category/<slug> to
+ // /categories/<slug>. The query string is preserved so sort/dir/page survive.
+ return Astro.redirect(`/categories/${Astro.params.slug}${Astro.url.search}`, 301);
+---
