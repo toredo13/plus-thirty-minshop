@@ -69,6 +69,12 @@ describe('responseCacheControl', () => {
     expect(responseCacheControl(path, 404, null)).toBe(PRIVATE_CACHE_CONTROL);
   });
 
+  it('replaces an empty Cache-Control header with the safe route default', () => {
+    expect(responseCacheControl('/product/mug', 301, '')).toBe(PUBLIC_CACHE_CONTROL);
+    expect(responseCacheControl('/not-a-route', 404, '')).toBe(PRIVATE_CACHE_CONTROL);
+    expect(responseCacheControl('/admin', 200, '')).toBe(PRIVATE_CACHE_CONTROL);
+  });
+
   it('allows only the permanent legacy storefront redirects', () => {
     expect(responseCacheControl('/product/mug', 301, null)).toBe(PUBLIC_CACHE_CONTROL);
     expect(responseCacheControl('/category/home', 301, null)).toBe(PUBLIC_CACHE_CONTROL);
