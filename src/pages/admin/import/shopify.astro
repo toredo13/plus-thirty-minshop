@@ -1,0 +1,114 @@
+---
+export const prerender = false;
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Import from Shopify" active="products">
+  <a href="/admin/products" class="text-sm text-gray-500 hover:text-brand">&larr; Back to products</a>
+  <h1 class="mt-4 text-2xl font-bold">Import from Shopify</h1>
+  <p class="mt-2 max-w-2xl text-sm text-gray-500">
+    Select the Shopify CSV export. Products, descriptions, categories, tags and images
+    are copied into Plus Thirty. Existing imported products are skipped if you run the
+    same file again.
+  </p>
+
+  <section class="mt-6 max-w-2xl rounded-lg border border-line bg-white p-5">
+    <label class="block text-sm font-medium" for="shopify-csv">Shopify CSV file</label>
+    <input
+      id="shopify-csv"
+      type="file"
+      accept=".csv,text/csv"
+      class="mt-3 block w-full text-sm text-gray-600 file:mr-4 file:rounded-md file:border-0 file:bg-brand file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-brand-hover"
+    />
+    <p id="shopify-preview" class="mt-3 text-sm text-gray-500">No file selected.</p>
+    <button
+      id="shopify-import"
+      type="button"
+      disabled
+      class="mt-5 rounded-md bg-brand px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      Import products
+    </button>
+    <p id="shopify-progress" role="status" aria-live="polite" class="mt-4 text-sm text-gray-600"></p>
+    <ul id="shopify-errors" class="mt-3 list-disc space-y-1 pl-5 text-sm text-red-700"></ul>
+  </section>
+</AdminLayout>
+
+<script>
+  import { parseShopifyCsv } from '../../../features/products/shopifyCsv';
+
+  const input = document.querySelector<HTMLInputElement>('#shopify-csv');
+  const preview = document.querySelector<HTMLElement>('#shopify-preview');
+  const button = document.querySelector<HTMLButtonElement>('#shopify-import');
+  const progress = document.querySelector<HTMLElement>('#shopify-progress');
+  const errors = document.querySelector<HTMLUListElement>('#shopify-errors');
+
+  let parsed: ReturnType<typeof parseShopifyCsv> | null = null;
+
+  input?.addEventListener('change', async () => {
+    parsed = null;
+    errors!.replaceChildren();
+    progress!.textContent = '';
+    button!.disabled = true;
+    const file = input.files?.[0];
+    if (!file) {
+      preview!.textContent = 'No file selected.';
+      return;
+    }
+    try {
+      const result = parseShopifyCsv(await file.text());
+      parsed = result;
+      if (result.errors.length || result.products.length === 0) {
+        preview!.textContent = `Found ${result.products.length} products, but the CSV needs attention before import.`;
+        for (const message of result.errors) {
+          const li = document.createElement('li');
+          li.textContent = message;
+          errors!.append(li);
+        }
+        return;
+      }
+      preview!.textContent = `Ready to import ${result.products.length} products and ${result.products.reduce((n, p) => n + p.imageUrls.length, 0)} images.`;
+      button!.disabled = false;
+    } catch (error) {
+      preview!.textContent = error instanceof Error ? error.message : 'Could not read the CSV file.';
+    }
+  });
+
+  button?.addEventListener('click', async () => {
+    if (!parsed || button.disabled) return;
+    const products = parsed.products;
+    button.disabled = true;
+    input!.disabled = true;
+    errors!.replaceChildren();
+    let imported = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let i = 0; i < products.length; i += 1) {
+      const product = products[i];
+      progress!.textContent = `Importing ${i + 1} of ${products.length}: ${product.name}`;
+      try {
+        const response = await fetch('/api/admin/import/shopify-product', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(product),
+        });
+        const result = await response.json() as { status?: string; error?: string; name?: string };
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        if (result.status === 'skipped') skipped += 1;
+        else imported += 1;
+      } catch (error) {
+        failed += 1;
+        const li = document.createElement('li');
+        li.textContent = `${product.name}: ${error instanceof Error ? error.message : 'Import failed'}`;
+        errors!.append(li);
+      }
+      progress!.textContent = `Processed ${i + 1} / ${products.length} — imported: ${imported}, already present: ${skipped}, errors: ${failed}`;
+    }
+
+    progress!.textContent = `Finished — imported ${imported}, already present ${skipped}, errors ${failed}.`;
+    input!.disabled = false;
+    button!.disabled = false;
+    button!.textContent = 'Run import again';
+  });
+</script>

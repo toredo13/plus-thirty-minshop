@@ -4,6 +4,9 @@ import { withPublicId } from '../ids/publicId.ts';
 export interface Product {
   id: number;
   public_id: string | null;
+  source_handle?: string | null;
+  vendor?: string | null;
+  source_tags?: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -40,6 +43,9 @@ export interface ProductFields {
 export interface ProductInput extends ProductFields {
   image_key: string | null;
   slug: string;
+  source_handle?: string | null;
+  vendor?: string | null;
+  source_tags?: string | null;
 }
 
 /** A page of active products for the storefront, newest first. */
@@ -385,16 +391,24 @@ export async function getProductBySlug(db: D1Database, slug: string): Promise<Pr
   return db.prepare('SELECT * FROM products WHERE slug = ?').bind(slug).first<Product>();
 }
 
+/** Product imported from an external catalogue, resolved by its stable source key. */
+export async function getProductBySourceHandle(
+  db: D1Database,
+  sourceHandle: string,
+): Promise<Product | null> {
+  return db.prepare('SELECT * FROM products WHERE source_handle = ?').bind(sourceHandle).first<Product>();
+}
+
 /** Insert a product and return its new id (needed for category links). */
 export async function createProduct(db: D1Database, p: ProductInput): Promise<number> {
   return withPublicId('product', async (publicId) => {
     const row = await db
       .prepare(
-        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, public_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO products (name, slug, description, price_cents, currency, image_key, stock, active, weight_grams, requires_shipping, public_id, source_handle, vendor, source_tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id`,
       )
-      .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, publicId)
+      .bind(p.name, p.slug, p.description, p.price_cents, p.currency, p.image_key, p.stock, p.active, p.weight_grams, p.requires_shipping, publicId, p.source_handle ?? null, p.vendor ?? null, p.source_tags ?? null)
       .first<{ id: number }>();
     return row!.id;
   });
