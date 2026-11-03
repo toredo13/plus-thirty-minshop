@@ -37,10 +37,13 @@ serving those canonical routes too.
 
 ## Lovable retail cart handoff
 
-The customer-facing domain and storefront remain on Lovable. Set a Lovable-side
-environment value such as `MINSHOP_ORIGIN` to the deployed Minshop Worker origin.
-Use the actual Worker hostname from Cloudflare; do not point this value at
-`plusthirty.dk`, because that domain continues to serve the Lovable storefront.
+The customer-facing domain and storefront remain on Lovable. The storefront
+reads the public Vite environment variable `VITE_MINSHOP_BASE_URL` for the
+deployed Minshop Worker origin; when unset it falls back to
+`https://minshop.plusthirtydk.workers.dev`. Set it to the actual Worker HTTPS
+origin in the Lovable deployment environment when using a different Worker.
+Do not point it at `plusthirty.dk`, because that domain continues to serve the
+Lovable storefront.
 
 When the shopper checks out from Lovable, submit a normal top-level form POST to
 `${MINSHOP_ORIGIN}/api/cart` (not a cross-origin JavaScript fetch). The form fields are:
