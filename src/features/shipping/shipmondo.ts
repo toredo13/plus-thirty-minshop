@@ -9,8 +9,10 @@ export interface ShipmondoProduct {
   carrierName: string;
   description: string;
   requiredServices: string[];
+  requiredFields: string[];
   servicePointProduct: boolean;
-  weightIntervals: unknown[];
+  available: boolean;
+  weightIntervals: Array<{ fromWeight: number; toWeight: number }>; 
   raw: Record<string, unknown>;
 }
 
@@ -24,6 +26,7 @@ export interface ShipmondoParty {
   country_code: string;
   email?: string;
   phone?: string;
+  mobile?: string;
 }
 
 export interface ShipmondoShipmentInput {
@@ -87,14 +90,36 @@ function productFrom(value: unknown): ShipmondoProduct | null {
       }).filter(Boolean)
     : [];
 
-  const available = Array.isArray(raw.available_services)
+  const availableServices = Array.isArray(raw.available_services)
     ? raw.available_services
     : [];
-  const requiredFromAvailable = available.flatMap((item) => {
+  const requiredFromAvailable = availableServices.flatMap((item) => {
     if (!item || typeof item !== 'object') return [];
     const service = item as Record<string, unknown>;
     return service.required === true ? [String(service.code ?? service.service_code ?? '')] : [];
   }).filter(Boolean);
+
+  const countryCombinations = Array.isArray(raw.country_combinations)
+    ? raw.country_combinations.filter((item) => item && typeof item === 'object') as Record<string, unknown>[]
+    : [];
+  const requiredFieldValues = [
+    ...(Array.isArray(raw.required_fields) ? raw.required_fields : []),
+    ...countryCombinations.flatMap((combination) =>
+      Array.isArray(combination.required_fields) ? combination.required_fields : [],
+    ),
+  ].map((item) => String(item)).filter(Boolean);
+
+  const weightIntervals = Array.isArray(raw.weight_intervals)
+    ? raw.weight_intervals.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const interval = item as Record<string, unknown>;
+        const fromWeight = Number(interval.from_weight ?? interval.min ?? interval.from);
+        const toWeight = Number(interval.to_weight ?? interval.max ?? interval.to);
+        return Number.isFinite(fromWeight) && Number.isFinite(toWeight)
+          ? [{ fromWeight, toWeight }]
+          : [];
+      })
+    : [];
 
   return {
     code,
@@ -103,13 +128,15 @@ function productFrom(value: unknown): ShipmondoProduct | null {
     carrierName: String(carrier.name ?? raw.carrier_name ?? carrier.code ?? ''),
     description: String(raw.description ?? ''),
     requiredServices: [...new Set([...required, ...requiredFromAvailable])],
+    requiredFields: [...new Set(requiredFieldValues)],
     servicePointProduct: raw.service_point_product === true ||
       raw.service_point_required === true ||
       raw.service_point === true ||
       /parcel ?shop|pakkeshop|service ?point|pickup/i.test(
         `${raw.name ?? ''} ${raw.description ?? ''}`,
       ),
-    weightIntervals: Array.isArray(raw.weight_intervals) ? raw.weight_intervals : [],
+    available: raw.available !== false,
+    weightIntervals,
     raw,
   };
 }
@@ -154,7 +181,7 @@ export async function fetchShipmondoProducts(
   if (!Array.isArray(list)) {
     return { ok: false, error: 'Shipmondo returned a product list in an unexpected format.' };
   }
-  return { ok: true, value: list.map(productFrom).filter((p): p is ShipmondoProduct => p !== null) };
+  return { ok: true, value: list.map(productFrom).filter((p): p is ShipmondoProduct => p !== null && p.available) };
 }
 
 /** Build a Shipmondo shipment payload. This only books after an explicit admin action. */
