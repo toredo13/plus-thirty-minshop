@@ -271,6 +271,27 @@ await check('quoting requires a paid, unfulfilled delivery order', async () => {
   assert.equal(await recordQuote(db, 4, 'shp_d'), false, 'pickup order must refuse');
 });
 
+await check('a provider quote retains its provider for recovery UI', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  assert.equal(await recordQuote(db, 1, 'shipmondo-pending-ord_1', 'Shipmondo'), true);
+  const record = await getLabelRecord(db, 1);
+  assert.equal(record.provider, 'Shipmondo');
+  assert.equal(record.shipment_id, 'shipmondo-pending-ord_1');
+});
+
+await check('Shipmondo provider survives an uncertain booking for safe recovery', async () => {
+  const db = await freshDb();
+  await addOrder(db, 1);
+  assert.equal(await recordQuote(db, 1, 'shipmondo-pending-ord_1', 'Shipmondo'), true);
+  const claim = await claimPurchase(db, 1, 'GLSDK_HD');
+  assert.ok(claim);
+  await markLabelUncertain(db, 1, claim.claimToken, 'Connection interrupted');
+  const record = await getLabelRecord(db, 1);
+  assert.equal(record.status, 'uncertain');
+  assert.equal(record.provider, 'Shipmondo');
+});
+
 await check('unknown and legacy-null delivery modes cannot quote', async () => {
   const db = await freshDb();
   await addOrder(db, 1, { delivery: 'unknown' });

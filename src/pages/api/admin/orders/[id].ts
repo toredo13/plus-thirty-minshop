@@ -49,6 +49,14 @@ import { shouldSendCustomerOrderEmail } from '../../../../features/email/orderPo
 import { getPaymentProvider, type PaymentMethod } from '../../../../features/payments';
 import { formatPrice } from '../../../../config';
 import { parseOrderOrLegacyPublicId } from '../../../../features/ids/publicId';
+import {
+  createShipmondoShipment,
+  fetchShipmondoProducts,
+  getShipmondoShipment,
+  shipmondoCarrierCode,
+  servicePointFromOrder,
+} from '../../../../features/shipping/shipmondo';
+import { toGrams } from '../../../../features/shipping/weight';
 
 export const prerender = false;
 
@@ -307,6 +315,184 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
     }
     return willEmail;
   };
+
+  // ── Shipmondo label booking ─────────────────────────────────────────────────
+  // Shipmondo creates and charges the shipment in one request. Claim the order
+  // before making that request, and park ambiguous outcomes for manual recovery.
+  if (action === 'buy_shipmondo_label') {
+    const username = await getSecret(env.DB, 'shipmondo_api_user');
+    const apiKey = await getSecret(env.DB, 'shipmondo_api_key');
+    if (!username || !apiKey) return fail('Add both Shipmondo API credentials in Settings first.');
+    if (!existing.ship_address) return fail('This order has no shipping address.');
+
+    let recipient: ShippingAddress & { phone?: string | null; servicePoint?: unknown };
+    try {
+      recipient = JSON.parse(existing.ship_address) as ShippingAddress & { phone?: string | null; servicePoint?: unknown };
+    } catch {
+      return fail('This order’s shipping address could not be read.');
+    }
+    if (!recipient.name || !recipient.line1 || !recipient.city || !recipient.postal || !recipient.country) {
+      return fail('The customer address is incomplete. Name, street, city, postal code and country are required.');
+    }
+
+    const from = {
+      name: String(form.get('from_name') ?? '').trim(),
+      address1: String(form.get('from_street1') ?? '').trim(),
+      postal_code: String(form.get('from_zip') ?? '').trim(),
+      city: String(form.get('from_city') ?? '').trim(),
+      country_code: String(form.get('from_country') ?? 'DK').trim().toUpperCase(),
+      email: String(form.get('from_email') ?? '').trim(),
+      phone: String(form.get('from_phone') ?? '').trim(),
+    };
+    if (!from.name || !from.address1 || !from.postal_code || !from.city || from.country_code.length !== 2 || !from.email || !from.phone) {
+      return fail('Complete the sender name, address, postal code, city, country, email and phone.');
+    }
+    if (from.country_code !== recipient.country.toUpperCase()) {
+      return fail('International labels are not enabled yet. Sender and receiver must be in the same country.');
+    }
+
+    const settings = await getStoreSettings(env.DB);
+    const weightRaw = String(form.get('parcel_weight') ?? '').trim();
+    const parsedWeight = toGrams(weightRaw, settings.weightUnit);
+    if (parsedWeight.status !== 'ok' || parsedWeight.grams <= 0) {
+      return fail('Enter the packed parcel weight above zero.');
+    }
+    const productCode = String(form.get('product_code') ?? '').trim();
+    if (!productCode) return fail('Choose a Shipmondo shipping product.');
+
+    const availableProducts = await fetchShipmondoProducts(username, apiKey, recipient.country.toUpperCase());
+    if (!availableProducts.ok) return fail(`Could not load Shipmondo products: ${availableProducts.error}`);
+    const product = availableProducts.value.find((candidate) => candidate.code === productCode);
+    if (!product) return fail('That Shipmondo product is no longer available. Reload the order and choose another product.');
+    if (
+      product.weightIntervals.length > 0 &&
+      !product.weightIntervals.some((interval) =>
+        parsedWeight.grams >= interval.fromWeight && parsedWeight.grams <= interval.toWeight,
+      )
+    ) {
+      const ranges = product.weightIntervals
+        .map((interval) => `${interval.fromWeight}–${interval.toWeight} g`)
+        .join(', ');
+      return fail(`This product does not accept the entered parcel weight. Allowed weights: ${ranges}.`);
+    }
+    const receiverPhone = String(form.get('receiver_phone') ?? recipient.phone ?? '').trim();
+    if (product.requiredFields.includes('receiver_mobile') && !receiverPhone) {
+      return fail('This Shipmondo product requires the customer’s mobile number. Enter it before booking.');
+    }
+    if (product.requiredFields.includes('receiver_email') && !existing.email) {
+      return fail('This Shipmondo product requires the customer’s email address.');
+    }
+    const servicePointId = servicePointFromOrder(existing);
+    if (servicePointId && !product.servicePointProduct) {
+      return fail('This order has a selected parcel shop, but the chosen Shipmondo product does not support service points.');
+    }
+    if (product.servicePointProduct && !servicePointId && form.get('automatic_service_point') !== '1') {
+      return fail('Confirm automatic selection of the nearest parcel shop, or select a service point in checkout first.');
+    }
+
+    // Remember the sender details for the next order. Secrets are not written here.
+    await setSetting(env.DB, 'ship_from', JSON.stringify({
+      name: from.name, street1: from.address1, zip: from.postal_code, city: from.city,
+      country: from.country_code, email: from.email, phone: from.phone,
+    }));
+    await setSetting(env.DB, 'parcel_default', JSON.stringify({ weight: weightRaw }));
+
+    const reference = `Plus Thirty ${existing.public_id}`;
+    const syntheticShipmentId = `shipmondo-pending-${existing.public_id}`;
+    if (!(await recordQuote(env.DB, id, syntheticShipmentId, 'Shipmondo'))) {
+      return fail('This order already has a label purchase in progress, or is no longer eligible for a shipping label.');
+    }
+    const claim = await claimPurchase(env.DB, id, productCode);
+    if (!claim) return fail('Could not reserve this order for label creation. Reload and check the order status.');
+
+    const created = await createShipmondoShipment(username, apiKey, {
+      productCode,
+      serviceCodes: product.requiredServices,
+      reference,
+      sender: { type: 'sender', ...from },
+      receiver: {
+        type: 'receiver',
+        name: recipient.name,
+        address1: recipient.line1,
+        ...(recipient.line2 ? { address2: recipient.line2 } : {}),
+        postal_code: recipient.postal,
+        city: recipient.city,
+        country_code: recipient.country.toUpperCase(),
+        ...(existing.email ? { email: existing.email } : {}),
+        ...(receiverPhone
+          ? product.servicePointProduct || product.requiredFields.includes('receiver_mobile')
+            ? { mobile: receiverPhone }
+            : { phone: receiverPhone }
+          : {}),
+      },
+      weightGrams: parsedWeight.grams,
+      servicePointId,
+      servicePointProduct: product.servicePointProduct,
+    });
+
+    if (!created.ok) {
+      if (created.uncertain) {
+        await markLabelUncertain(env.DB, id, claim.claimToken, created.error);
+        return fail(`Shipmondo’s answer was interrupted (${created.error}). The label may have been booked. Find its shipment ID in Shipmondo and use “Reconcile Shipmondo label” here before retrying.`);
+      }
+      await markLabelFailed(env.DB, id, claim.claimToken, created.error);
+      return fail(created.error);
+    }
+
+    const recorded = await recordPurchased(env.DB, id, claim.claimToken, {
+      transactionId: created.value.id,
+      shipmentId: created.value.id,
+      provider: 'Shipmondo',
+      service: product.name,
+      amountCents: created.value.priceCents,
+      trackingNumber: created.value.trackingNumber,
+      labelUrl: `/api/admin/orders/${existing.public_id}/label.pdf`,
+      carrierCode: shipmondoCarrierCode(created.value.carrierCode || product.carrierCode),
+    });
+    if (!recorded.recorded) {
+      return fail(`Shipmondo booked shipment ${created.value.id} (${created.value.trackingNumber}), but this attempt was superseded. Reconcile it manually in Shipmondo.`);
+    }
+    if (!recorded.orderFulfilled) {
+      return fail(`Label ${created.value.trackingNumber} was booked and recorded, but the order changed state and could not be marked fulfilled. Reconcile by hand.`);
+    }
+    const willEmail = await queueShippedDelivery(id);
+    return notice(`Shipmondo label booked. Tracking ${created.value.trackingNumber} recorded. ${willEmail ? 'The tracking email has been queued.' : 'No customer email will be sent for this order.'}`);
+  }
+
+  if (action === 'label_reconcile_shipmondo') {
+    const username = await getSecret(env.DB, 'shipmondo_api_user');
+    const apiKey = await getSecret(env.DB, 'shipmondo_api_key');
+    if (!username || !apiKey) return fail('Add both Shipmondo API credentials in Settings first.');
+    const shipmentId = String(form.get('shipmondo_shipment_id') ?? '').trim();
+    if (!shipmentId || shipmentId.length > 100) return fail('Enter the shipment ID from Shipmondo.');
+    const record = await getLabelRecord(env.DB, id);
+    const settleable = record && record.claim_token &&
+      (record.status === 'uncertain' || (record.status === 'purchasing' && isPurchaseStale(record)));
+    if (!record || !settleable) return fail('There is no Shipmondo shipment waiting to be reconciled.');
+
+    const found = await getShipmondoShipment(username, apiKey, shipmentId);
+    if (!found.ok) return fail(`Could not find that Shipmondo shipment: ${found.error}`);
+    if (found.value.id !== shipmentId) return fail('Shipmondo returned a different shipment ID. Nothing was changed.');
+    const expectedReference = `Plus Thirty ${existing.public_id}`;
+    if (found.value.reference !== expectedReference) {
+      return fail('The Shipmondo shipment reference does not match this order. Nothing was changed.');
+    }
+
+    const recorded = await recordPurchased(env.DB, id, record.claim_token!, {
+      transactionId: found.value.id,
+      shipmentId: found.value.id,
+      provider: 'Shipmondo',
+      service: found.value.service ?? record.service ?? 'Booked shipment',
+      amountCents: found.value.priceCents || record.amount_cents || 0,
+      trackingNumber: found.value.trackingNumber,
+      labelUrl: `/api/admin/orders/${existing.public_id}/label.pdf`,
+      carrierCode: shipmondoCarrierCode(found.value.carrierCode || record.provider || ''),
+    });
+    if (!recorded.recorded) return fail('The label attempt changed while reconciling. Reload and inspect the order.');
+    if (!recorded.orderFulfilled) return notice('Shipmondo shipment recovered and recorded, but the order could not be marked fulfilled. Check its status manually.');
+    const willEmail = await queueShippedDelivery(id);
+    return notice(`Shipmondo shipment ${shipmentId} recovered. Tracking ${found.value.trackingNumber} recorded. ${willEmail ? 'The tracking email has been queued.' : 'No customer email will be sent.'}`);
+  }
 
   // ── Shipping labels ────────────────────────────────────────────────────────
   // Buying moves money on the merchant's Shippo account, so every step runs

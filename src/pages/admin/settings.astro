@@ -295,6 +295,8 @@ if (Astro.request.method === 'POST') {
         await applySecrets([secretName]);
       }
     }
+  } else if (action === 'save_shipmondo') {
+    await applySecrets(['shipmondo_api_user', 'shipmondo_api_key']);
   } else if (action === 'save_shippo') {
     await applySecrets(['shippo_api_key']);
   } else if (action === 'save_opennode') {
@@ -304,7 +306,16 @@ if (Astro.request.method === 'POST') {
   // Admin saves are deliberately coarse and infrequent. Purge both public
   // dependency roots after the write rather than risk a newly added setting
   // silently missing its invalidation edge.
-  await purgeCacheTags([CACHE_TAG.shell, CACHE_TAG.catalog]);
+  try {
+    await purgeCacheTags([CACHE_TAG.shell, CACHE_TAG.catalog]);
+  } catch (error) {
+    // Settings have already been saved to D1. Cache invalidation is best-effort;
+    // never report a successful credential/settings write as failed afterwards.
+    console.warn(
+      'Settings saved; Workers cache invalidation was unavailable:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   // Background (JS) submit → no redirect; the client re-fetches + swaps the section.
   if (Astro.request.headers.get('x-requested-with') === 'fetch') {
     return validationError
@@ -783,25 +794,23 @@ const sections = [
       </form>
     </div>
 
-    {/* Shipping labels are optional infrastructure like the payment rails: the
-        card is one token field, and nothing label-related renders anywhere else
-        until the token exists. */}
+    {/* Shipmondo API credentials are encrypted in the D1 vault. */}
     <div class="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-4">
-      <p class="font-medium">Shipping labels (Shippo)</p>
+      <p class="font-medium">Shipping labels (Shipmondo)</p>
       <p class="mt-1 text-xs text-gray-500">
-        Buy carrier labels from the order page using the recorded address and weight — tracking
-        is filled in and the shipped email sent automatically. A
-        <code class="text-[11px]">shippo_test_…</code> token buys fake labels for trying it out.
+        Book GLS, PostNord and DAO labels from a paid order. Credentials are stored encrypted in Minshop and never displayed again after saving.
       </p>
       <form method="POST" class="mt-3 space-y-3">
-        <input type="hidden" name="_action" value="save_shippo" />
-        <SecretField name="shippo_api_key" label="API token" hint="shippo_live_… or shippo_test_…" storedInD1={inD1('shippo_api_key')} vault={vault} />
+        <input type="hidden" name="_action" value="save_shipmondo" />
+        <SecretField name="shipmondo_api_user" label="API username" hint="Shipmondo → Settings → Integrations → API" storedInD1={inD1('shipmondo_api_user')} vault={vault} />
+        <SecretField name="shipmondo_api_key" label="API key" hint="Create or use an active API access in Shipmondo" storedInD1={inD1('shipmondo_api_key')} vault={vault} />
         {vault && (
           <button type="submit" class="mt-1 rounded-md bg-brand px-4 py-2 text-xs font-medium uppercase tracking-wider text-white hover:bg-brand-hover">
-            Save
+            Save Shipmondo credentials
           </button>
         )}
       </form>
+      {!vault && <p class="mt-2 text-xs text-amber-700">The encrypted key vault is not available until SECRETS_KEK is configured.</p>}
     </div>
 
     <ul class="mb-10 divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
