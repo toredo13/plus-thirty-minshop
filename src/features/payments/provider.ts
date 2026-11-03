@@ -58,7 +58,7 @@ export interface CreateCheckoutParams {
   };
   /**
    * Set when the in-app step has ALREADY collected an address and a chosen rate
-   * (Lightning, OpenNode, Demo). Adapters charge and snapshot exactly this instead
+   * (Lightning, OpenNode, Stripe, Demo). Adapters charge and snapshot exactly this instead
    * of guessing from an unselected list — picking `options[0]` was how the demo
    * rail silently charged the wrong rate and OpenNode charged none at all.
    */
