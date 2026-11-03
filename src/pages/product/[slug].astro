@@ -1,9 +1,19 @@
----
+import { PUBLIC_CACHE_CONTROL } from '../../features/cache/public';
+
 // Permanent redirect to the plural canonical URL. Product detail moved from
 // /product/<slug> to /products/<slug> so the public route matches its own JSON
 // endpoint (/api/products/<slug>), the admin (/admin/products), and the feature
 // directory. These URLs were public — in sitemaps, llms.txt, and search indexes
 // — so this stub stays indefinitely rather than being cleaned up later.
 // The query string is preserved: the product page carries ?error= and ?canceled=.
-return Astro.redirect(`/products/${Astro.params.slug}${Astro.url.search}`, 301);
----
+const destination = new URL(
+  `/products/${Astro.params.slug}${Astro.url.search}`,
+  Astro.url,
+);
+return new Response(null, {
+  status: 301,
+  headers: {
+    location: destination.href,
+    'cache-control': PUBLIC_CACHE_CONTROL,
+  },
+});
