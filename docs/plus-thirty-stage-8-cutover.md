@@ -7,7 +7,7 @@ This runbook is the final production gate for moving Plus Thirty away from Shopi
 The latest checked revisions passed:
 
 - Minshop `plus-thirty-v020`, commit `71b6d6d7bddee273ac64d6cfecb85b3c7aeb3dbd`: Minshop quality checks passed (unit tests, Astro/TypeScript checks, Cloudflare Worker build).
-- The same Minshop commit: full `Verify` passed, including unit/integration verification, D1-backed cart and checkout integration, and the `market` and `studio` theme contract/build jobs.
+- The same Minshop commit: full `Verify` passed, including unit/integration verification, D1-backed cart and checkout integration, variant handoff validation, and the `market` and `studio` theme contract/build jobs.
 - Lovable storefront `main`, commit `c3e852e7e03b1a18fd41b97fa80c182a475b6222`: Storefront tests and production build passed, including wholesale order approval/pricing tests.
 
 These are automated CI checks. They do not prove live provider credentials, Cloudflare production bindings, custom-domain routing, a real payment, or a real carrier booking are correct.
@@ -22,7 +22,7 @@ Inspected in the repository:
 - `wrangler.template.jsonc` provisions D1 and R2. Integrations requiring external credentials must be configured separately in the deployed environment / Admin; no provider secrets belong in Git.
 - The Lovable storefront points at Minshop by `VITE_MINSHOP_BASE_URL`, falling back to `https://minshop.plusthirtydk.workers.dev`.
 - The Worker must keep `CANONICAL_ORIGIN` unset while `plusthirty.dk` serves the Lovable storefront.
-- Retail cart handoff is a POST to Minshop; only product slugs and quantities cross the boundary. Minshop resolves prices, stock and availability from D1.
+- Retail cart handoff is a POST to Minshop. The current Lovable cart sends product slugs and quantities; Minshop resolves prices, stock and availability from D1. Minshop also accepts and validates selected `variant_id` and `extra_ids` when supplied, but the current Lovable cart does not yet send those fields.
 - Approved B2B customers and customer-specific prices remain in the authenticated Supabase flow.
 
 ## Gate A — Shopify archive (before any shutdown)
