@@ -10,7 +10,7 @@ export const GET: APIRoute = async ({ url }) => {
   const zip = String(url.searchParams.get('zip') ?? '').trim();
   const street = String(url.searchParams.get('street') ?? '').trim();
 
-  if (!isPickupCarrier(carrier) || !/^\\d{4}$/.test(zip) || street.length > 120) {
+  if (!isPickupCarrier(carrier) || !/^\d{4}$/.test(zip) || street.length > 120) {
     return Response.json(
       { ok: false, points: [], error: 'Choose a carrier and enter a valid Danish postcode.' },
       { status: 400, headers: { 'Cache-Control': 'no-store' } },
