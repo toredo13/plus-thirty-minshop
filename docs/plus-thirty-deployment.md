@@ -27,11 +27,13 @@ Build category/subcategory filters from `categories` and the retained `tags`.
 Use `slug` for the retail cart handoff. The API is read-only; never use browser
 prices or stock as checkout authority.
 
-Set the Minshop Worker variable `CANONICAL_ORIGIN` to
-`https://plusthirty.dk` so absolute product URLs, canonical metadata, sitemap,
-and robots.txt point to the public Lovable domain rather than the Worker host.
-This is a canonical URL setting only; it does not move DNS or attach the domain
-to the Worker.
+During the split architecture, keep `CANONICAL_ORIGIN` unset: the Worker
+serves its own `workers.dev` host while `plusthirty.dk` remains on Lovable.
+This setting also changes Minshop HTML canonical metadata, sitemap, and robots.txt,
+not only product API links. The Lovable frontend should construct its public
+product-page URLs from each product's `slug`, using its own domain. Do not set
+`CANONICAL_ORIGIN=https://plusthirty.dk` unless the Worker is intentionally
+serving those canonical routes too.
 
 ## Lovable retail cart handoff
 
