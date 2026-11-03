@@ -437,6 +437,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
     const recorded = await recordPurchased(env.DB, id, claim.claimToken, {
       transactionId: created.value.id,
+      shipmentId: created.value.id,
       provider: 'Shipmondo',
       service: product.name,
       amountCents: created.value.priceCents,
@@ -475,6 +476,7 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
 
     const recorded = await recordPurchased(env.DB, id, record.claim_token!, {
       transactionId: found.value.id,
+      shipmentId: found.value.id,
       provider: 'Shipmondo',
       service: found.value.service ?? record.service ?? 'Booked shipment',
       amountCents: found.value.priceCents || record.amount_cents || 0,
