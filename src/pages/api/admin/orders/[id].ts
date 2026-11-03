@@ -419,7 +419,11 @@ export const POST: APIRoute = async ({ request, params, redirect }) => {
         city: recipient.city,
         country_code: recipient.country.toUpperCase(),
         ...(existing.email ? { email: existing.email } : {}),
-        ...(receiverPhone ? { phone: receiverPhone } : {}),
+        ...(receiverPhone
+          ? product.servicePointProduct || product.requiredFields.includes('receiver_mobile')
+            ? { mobile: receiverPhone }
+            : { phone: receiverPhone }
+          : {}),
       },
       weightGrams: parsedWeight.grams,
       servicePointId,
