@@ -4,6 +4,9 @@ export const CARRIERS = [
   { code: 'ups', name: 'UPS' },
   { code: 'fedex', name: 'FedEx' },
   { code: 'dhl', name: 'DHL' },
+  { code: 'gls', name: 'GLS' },
+  { code: 'postnord', name: 'PostNord' },
+  { code: 'dao', name: 'DAO' },
   { code: 'other', name: 'Other' },
 ] as const;
 
