@@ -276,119 +276,118 @@ if (submitted) {
             }
           }
           if (errors.length === 0) {
-          // Finalize: mint the invoice for subtotal + the chosen shipping.
-          // Claim the order's public identity + guest credential BEFORE the
-          // provider handoff: the ord_ id ties reservation → pending payment →
-          // settled order, and the access token is the only thing guest URLs
-          // carry. Reservations keep using the ord_ public id.
-          const { publicId, accessToken } = await claimOrderIdentity(env.DB);
-          const reservedItems: ReservationItem[] = lines.map((line) => ({
-            productId: line.product.id,
-            variantId: line.variantId,
-            name: line.name,
-            priceCents: line.unitPriceCents,
-            quantity: line.qty,
-          }));
-          const reservationTtl =
-            rail === 'demo'
-              ? DEMO_CHECKOUT_TTL_SECONDS
-              : rail === 'stripe'
-                ? STRIPE_CHECKOUT_TTL_SECONDS
-                : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
-          const reserved = await reserveInventory(
-            env.DB,
-            publicId,
-            reservedItems,
-            reservationTtl,
-            rail,
-            purgeStockProductCache,
-          );
-          if (!reserved) {
-            await deleteGuestAccessIfUnsettled(env.DB, publicId);
-            errors.push('Some inventory just sold out — please review your cart.');
-          } else {
-            const shippingAddress = {
-              name: addr.name,
-              line1: addr.line1,
-              line2: addr.line2 || null,
-              city: addr.city,
-              state: addr.state || null,
-              postal: addr.postal,
-              country: addr.country,
-              phone: addr.phone || null,
-              servicePoint: selectedPickupPoint,
-            };
-            const itemsJson = JSON.stringify(
-              lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
+            // Finalize: mint the invoice for subtotal + the chosen shipping.
+            // Claim the order's public identity + guest credential BEFORE the
+            // provider handoff: the ord_ id ties reservation → pending payment →
+            // settled order, and the access token is the only thing guest URLs
+            // carry. Reservations keep using the ord_ public id.
+            const { publicId, accessToken } = await claimOrderIdentity(env.DB);
+            const reservedItems: ReservationItem[] = lines.map((line) => ({
+              productId: line.product.id,
+              variantId: line.variantId,
+              name: line.name,
+              priceCents: line.unitPriceCents,
+              quantity: line.qty,
+            }));
+            const reservationTtl =
+              rail === 'demo'
+                ? DEMO_CHECKOUT_TTL_SECONDS
+                : rail === 'stripe'
+                  ? STRIPE_CHECKOUT_TTL_SECONDS
+                  : cfg.payments.lightning.invoiceExpiryMinutes * 60 + 5 * 60;
+            const reserved = await reserveInventory(
+              env.DB,
+              publicId,
+              reservedItems,
+              reservationTtl,
+              rail,
+              purgeStockProductCache,
             );
-            try {
-              // OpenNode and Demo reach their adapters with the rate ALREADY chosen,
-              // so they charge and snapshot the merchant's real configuration
-              // instead of ignoring shipping or guessing at the first option.
-              if (rail !== 'lightning') {
-                const provider = await getPaymentProvider(rail);
-                const result = await provider.createCheckout({
-                  lineItems: lines.map((l) => ({
-                    name: l.name,
-                    amountCents: l.unitPriceCents,
-                    currency,
-                    quantity: l.qty,
-                  })),
-                  successUrl: `${Astro.url.origin}/order/${accessToken}`,
-                  cancelUrl: `${Astro.url.origin}/cart`,
-                  orderItemsJson: itemsJson,
-                  // Provider metadata NEVER carries the access token.
-                  metadata: { public_id: publicId, reservation_id: publicId },
-                  accessToken,
-                  selectedShipping: {
-                    label: chosen.label,
-                    amountCents: chosen.amountCents,
-                    weightGrams: quote.shipmentWeightGrams,
-                    deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
-                    address: shippingAddress,
-                    email: addr.email,
-                  },
-                });
-                return Astro.redirect(result.url, 303);
-              }
-              const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
-                origin: Astro.url.origin,
-                publicId,
-                accessToken,
-                currency,
-                subtotalCents,
-                shippingCents: chosen.amountCents,
-                shippingLabel: chosen.label,
-                shippingWeightGrams: quote.shipmentWeightGrams,
-                deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
-                itemsJson,
-                email: addr.email,
-                shippingAddress,
-                reservationId: publicId,
-              });
-              if (!minted.payUrl) throw new Error('Lightning backend did not return a payment URL.');
-              return Astro.redirect(minted.payUrl, 303);
-            } catch (error) {
-              // The Lightning node (e.g. LNbits) can be briefly unreachable. Free
-              // the whole claim — held stock AND the guest credential — and show
-              // a retryable message instead of a 500, so the shopper can try
-              // again or pick another method.
-              await releaseInventoryReservation(env.DB, publicId, purgeStockProductCache);
+            if (!reserved) {
               await deleteGuestAccessIfUnsettled(env.DB, publicId);
-              console.error(
-                JSON.stringify({
-                  event: rail === 'lightning' ? 'lightning_invoice_failed' : 'checkout_create_failed',
-                  rail,
-                  message: error instanceof Error ? error.message : String(error),
-                }),
+              errors.push('Some inventory just sold out — please review your cart.');
+            } else {
+              const shippingAddress = {
+                name: addr.name,
+                line1: addr.line1,
+                line2: addr.line2 || null,
+                city: addr.city,
+                state: addr.state || null,
+                postal: addr.postal,
+                country: addr.country,
+                phone: addr.phone || null,
+                servicePoint: selectedPickupPoint,
+              };
+              const itemsJson = JSON.stringify(
+                lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
               );
-              errors.push(
-                rail === 'lightning'
-                  ? 'Lightning is temporarily unavailable. Please try again in a moment, or choose another payment method.'
-                  : 'That payment method is temporarily unavailable. Please try again in a moment, or choose another.',
-              );
+              try {
+                // Hosted providers receive the already-selected rate and address,
+                // including the parcel shop, rather than guessing from an option list.
+                if (rail !== 'lightning') {
+                  const provider = await getPaymentProvider(rail);
+                  const result = await provider.createCheckout({
+                    lineItems: lines.map((l) => ({
+                      name: l.name,
+                      amountCents: l.unitPriceCents,
+                      currency,
+                      quantity: l.qty,
+                    })),
+                    successUrl: `${Astro.url.origin}/order/${accessToken}`,
+                    cancelUrl: `${Astro.url.origin}/cart`,
+                    orderItemsJson: itemsJson,
+                    // Provider metadata NEVER carries the access token.
+                    metadata: { public_id: publicId, reservation_id: publicId },
+                    accessToken,
+                    selectedShipping: {
+                      label: chosen.label,
+                      amountCents: chosen.amountCents,
+                      weightGrams: quote.shipmentWeightGrams,
+                      deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
+                      address: shippingAddress,
+                      email: addr.email,
+                    },
+                  });
+                  return Astro.redirect(result.url, 303);
+                }
+                const minted = await mintLightningOrder(env.DB, await getLightningBackend(), {
+                  origin: Astro.url.origin,
+                  publicId,
+                  accessToken,
+                  currency,
+                  subtotalCents,
+                  shippingCents: chosen.amountCents,
+                  shippingLabel: chosen.label,
+                  shippingWeightGrams: quote.shipmentWeightGrams,
+                  deliveryMethod: chosen.pickup ? 'pickup' : 'shipping',
+                  itemsJson,
+                  email: addr.email,
+                  shippingAddress,
+                  reservationId: publicId,
+                });
+                if (!minted.payUrl) throw new Error('Lightning backend did not return a payment URL.');
+                return Astro.redirect(minted.payUrl, 303);
+              } catch (error) {
+                // The Lightning node (e.g. LNbits) can be briefly unreachable. Free
+                // the whole claim — held stock AND the guest credential — and show
+                // a retryable message instead of a 500, so the shopper can try
+                // again or pick another method.
+                await releaseInventoryReservation(env.DB, publicId, purgeStockProductCache);
+                await deleteGuestAccessIfUnsettled(env.DB, publicId);
+                console.error(
+                  JSON.stringify({
+                    event: rail === 'lightning' ? 'lightning_invoice_failed' : 'checkout_create_failed',
+                    rail,
+                    message: error instanceof Error ? error.message : String(error),
+                  }),
+                );
+                errors.push(
+                  rail === 'lightning'
+                    ? 'Lightning is temporarily unavailable. Please try again in a moment, or choose another payment method.'
+                    : 'That payment method is temporarily unavailable. Please try again in a moment, or choose another.',
+                );
+              }
             }
-          }
           }
         }
       }
