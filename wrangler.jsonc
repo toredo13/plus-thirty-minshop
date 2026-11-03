@@ -31,6 +31,7 @@
     {
       "binding": "DB",
       "database_name": "minshop-db",
+      "database_id": "092df146-0538-4668-a3c8-63859c23a506",
       "migrations_dir": "migrations"
     }
   ],
