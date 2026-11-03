@@ -36,7 +36,7 @@ export async function findPickupPoints(
   zip: string,
   street: string,
 ): Promise<PickupPointResult> {
-  if (!/^\\d{4}$/.test(zip)) return { ok: false, error: 'Enter a valid 4-digit Danish postcode.' };
+  if (!/^\d{4}$/.test(zip)) return { ok: false, error: 'Enter a valid 4-digit Danish postcode.' };
   const address = street.trim().slice(0, 120);
 
   try {
