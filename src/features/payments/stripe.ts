@@ -125,6 +125,11 @@ export function createStripeProvider(
             ...selectedShippingMetadata,
           },
         }),
+        ...(selected && params.automaticTax && {
+          // Automatic Tax needs a billing location. Delivery address is already
+          // collected by Minshop and is preserved in metadata with the parcel shop.
+          billing_address_collection: 'required' as const,
+        }),
         ...(params.allowPromotionCodes && { allow_promotion_codes: true }),
         ...(params.automaticTax && { automatic_tax: { enabled: true } }),
         ...(params.shipping && {
