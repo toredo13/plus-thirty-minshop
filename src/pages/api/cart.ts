@@ -30,18 +30,35 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
     if (!parsed.ok) return new Response(parsed.error, { status: 400 });
 
     const importedCart: Record<string, number> = {};
-    for (const { slug, quantity } of parsed.items) {
+    for (const { slug, quantity, variantId, extraIds } of parsed.items) {
       const product = await getProductBySlug(env.DB, slug);
       if (!product || product.active !== 1 || !product.public_id) {
         return new Response('Product unavailable: ' + slug, { status: 409 });
       }
-      // The current Shopify CSV import supports single-SKU products. Fail closed
-      // rather than silently discarding a variant or add-on added later in Admin.
+
+      // Resolve every selected option against this product's active D1 records.
+      // Client prices and labels are never trusted or copied into the cart.
       const variants = await listVariants(env.DB, product.id);
-      if (variants.length > 0) {
-        return new Response('Product requires an option selection: ' + product.name, { status: 409 });
+      const chosenVariant = variantId
+        ? variants.find((variant) => variant.public_id === variantId)
+        : null;
+      if ((variants.length > 0 && !chosenVariant) || (variants.length === 0 && variantId)) {
+        return new Response('Product requires a valid option selection: ' + product.name, { status: 409 });
       }
-      importedCart[cartKey(product.public_id, null, [])] = quantity;
+
+      const extras = extraIds.length
+        ? await getExtrasByPublicIds(env.DB, product.id, extraIds)
+        : [];
+      if (extras.length !== extraIds.length) {
+        return new Response('One or more selected extras are unavailable: ' + product.name, { status: 409 });
+      }
+
+      const key = cartKey(
+        product.public_id,
+        chosenVariant?.public_id ?? null,
+        extras.flatMap((extra) => (extra.public_id ? [extra.public_id] : [])),
+      );
+      importedCart[key] = Math.min((importedCart[key] ?? 0) + quantity, CART_QTY_MAX);
     }
 
     writeCart(cookies, importedCart, url.protocol === 'https:');
