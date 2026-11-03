@@ -11,6 +11,28 @@ This branch is the production Minshop backend for Plus Thirty.
 - Approved wholesale accounts, customer-specific pricing, and wholesale order submission remain on the existing authenticated Supabase flow.
 - The Shopify CSV importer is available in Admin; the catalogue is not considered migrated until the owner uploads the exported CSV and the imported products are reviewed.
 
+## Lovable catalogue API
+
+The catalogue is public read-only JSON with cross-origin GET / OPTIONS enabled:
+
+- `GET /api/products?limit=100&offset=0` returns `products`, `total`, `limit`,
+  `offset`, and `query`. The default page size is 24 and the maximum is 100;
+  keep requesting pages until `offset` reaches `total`.
+- `GET /api/products/{slug}` returns one active product with its variants and extras.
+- Each product exposes its Minshop public `id`, `slug`, name, description, DKK
+  price (amount and cents), stock availability, categories, original Shopify
+  `tags` and `source_handle`, image URL, and public product URL.
+
+Build category/subcategory filters from `categories` and the retained `tags`.
+Use `slug` for the retail cart handoff. The API is read-only; never use browser
+prices or stock as checkout authority.
+
+Set the Minshop Worker variable `CANONICAL_ORIGIN` to
+`https://plusthirty.dk` so absolute product URLs, canonical metadata, sitemap,
+and robots.txt point to the public Lovable domain rather than the Worker host.
+This is a canonical URL setting only; it does not move DNS or attach the domain
+to the Worker.
+
 ## Lovable retail cart handoff
 
 The customer-facing domain and storefront remain on Lovable. Set a Lovable-side
