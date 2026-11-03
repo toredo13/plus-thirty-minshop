@@ -24,10 +24,10 @@ import { toMinorUnits } from '../../money.ts';
 
 export const SHIPPING_CONFIG_KEY = 'shipping_config';
 
-/** 1 = flat rates only. 2 adds pricing modes and the package-weight allowance.
- *  3 adds the pickup pricing mode. Bumped so a rollback fails CLOSED on a
- *  document it cannot fully understand instead of silently dropping rates. */
-export const SHIPPING_SCHEMA_VERSION = 3;
+/** 1 = flat rates only. 2 adds pricing modes/package weight, 3 adds local
+ * pickup, and 4 adds carrier delivery to a selected parcel shop. Rollbacks fail
+ * closed rather than silently dropping a mode they cannot understand. */
+export const SHIPPING_SCHEMA_VERSION = 4;
 
 export const SHIPPING_LIMITS = {
   zones: 20,
@@ -300,7 +300,7 @@ export function validateShippingDocument(doc: RuntimeShippingConfig): ShippingVa
       }
 
       const pricing = rate?.pricing;
-      if (pricing?.type === 'flat' || pricing?.type === 'pickup') {
+      if (pricing?.type === 'flat' || pricing?.type === 'pickup' || pricing?.type === 'service_point') {
         if (!isAmount(pricing.amountCents)) {
           errors.push({ zoneIndex, rateIndex, field: 'amount', message: 'Enter a price.' });
         }
@@ -412,6 +412,16 @@ export function parseRuntimeShippingConfig(
       freeOverCents: typeof zone?.freeOverCents === 'number' ? zone.freeOverCents : null,
     })),
   };
+
+  if (doc.schema < 4 && normalized.zones.some((zone) =>
+    zone.rates.some((rate) => rate.pricing.type === 'service_point')
+  )) {
+    return {
+      status: 'invalid',
+      raw,
+      error: 'Parcel-shop delivery requires shipping configuration schema 4. Save the shipping settings again to upgrade it.',
+    };
+  }
 
   const errors = validateShippingDocument(normalized);
   if (errors.length > 0) {
@@ -655,7 +665,7 @@ export interface ShippingFormBand {
 export interface ShippingFormRate {
   token: string;
   label: string;
-  mode: 'flat' | 'weight' | 'pickup';
+  mode: 'flat' | 'weight' | 'pickup' | 'service_point';
   amountValue: string;
   bands: ShippingFormBand[];
 }
@@ -861,7 +871,11 @@ export function parseShippingForm(
       const ratePrefix = `${prefix}[rate][${rateToken}]`;
       const label = str(form, `${ratePrefix}[label]`);
       const rawMode = str(form, `${ratePrefix}[mode]`);
-      const mode = rawMode === 'weight' ? 'weight' : rawMode === 'pickup' ? 'pickup' : 'flat';
+      const mode =
+        rawMode === 'weight' ? 'weight'
+          : rawMode === 'pickup' ? 'pickup'
+            : rawMode === 'service_point' ? 'service_point'
+              : 'flat';
       const amountValue = str(form, `${ratePrefix}[amount]`);
 
       const bandTokens =
