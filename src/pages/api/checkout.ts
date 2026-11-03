@@ -245,22 +245,17 @@ export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
 
   const cfg = getConfig();
 
-  // Lightning + shipping enabled: we must collect the address before we can total
-  // the order (zone-accurate shipping), so route to the own-checkout page. Carry the
-  // buy-now product + variant/extras so it prices the same line. Stripe & OpenNode
-  // collect/handle shipping on their own hosted page, so they continue below.
+  // Shipping orders collect their address and delivery choice in Minshop's own
+  // checkout so parcel-shop selections can be attached to the paid order.
   const effectiveShipping = shippingFor(settings).config;
   // Digital-only baskets never collect an address or pay for delivery, whatever
   // the store's shipping setting says.
   const shipment = shipmentWeightFor(lines);
   const shippingApplies = effectiveShipping.enabled && shipment.shippingRequired;
 
-  // Rails that cannot collect a destination on their own hosted page go through the
-  // in-app step first: Lightning has no hosted page, OpenNode's ignores addresses,
-  // and Demo has none. Without this, OpenNode charged no shipping at all and Demo
-  // billed whichever rate sorted first — both silently wrong once a merchant can
-  // edit rates. Stripe collects the address itself and continues below.
-  const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'demo'];
+  // For shippable baskets all rails use Minshop's address + rate step. This also
+  // captures the selected parcel shop before the payment provider takes over.
+  const IN_APP_SHIPPING_RAILS = ['lightning', 'opennode', 'demo', 'stripe'];
   if (IN_APP_SHIPPING_RAILS.includes(selected) && shippingApplies) {
     const params = new URLSearchParams({ method: selected });
     if (productPublicId) {
