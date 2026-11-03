@@ -65,15 +65,18 @@ export function responseCacheControl(
   existing: string | null,
   productError = false,
 ): string {
+  // Redirect helpers can expose an empty Cache-Control header. An empty value
+  // is not an explicit policy and must not disable the safe default.
+  const existingPolicy = existing?.trim() || null;
   if (isPrivatePath(pathname) || productError) return PRIVATE_CACHE_CONTROL;
 
   const publicResponse =
     (status === 200 || status === 301) &&
     (isPublicCatalogApi(pathname) || isPublicStorefrontPath(pathname));
-  if (publicResponse) return existing ?? PUBLIC_CACHE_CONTROL;
+  if (publicResponse) return existingPolicy ?? PUBLIC_CACHE_CONTROL;
 
   // Non-page routes such as immutable /images objects may own a more specific
   // policy. Preserve explicit choices; only close the heuristic-cache gap when
   // the route emitted no directive.
-  return existing ?? PRIVATE_CACHE_CONTROL;
+  return existingPolicy ?? PRIVATE_CACHE_CONTROL;
 }
