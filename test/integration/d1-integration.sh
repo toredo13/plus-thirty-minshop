@@ -477,11 +477,12 @@ node -e '
   }
 ' "$us_body"
 
-npx wrangler d1 execute DB --local --persist-to "$state_dir" \
-  --command "DELETE FROM settings WHERE key = 'shipping_config'" >/dev/null
+# Keep the explicit, enabled shipping_config from the zone tests above.
+# Plus Thirty's build-time default deliberately disables shipping, so deleting
+# this row here would make the following missing-address assertion meaningless.
 
 # A shipped in-app order without a destination must be refused, not quietly
-# accepted with zero shipping (the pre-fix behaviour this test used to rely on).
+# accepted with zero shipping.
 no_ship_status="$(curl --max-time 30 --silent --output /dev/null --write-out '%{http_code}' \
   -H 'content-type: application/json' \
   -H "origin: http://127.0.0.1:$test_port" \
@@ -491,6 +492,10 @@ if [[ "$no_ship_status" != "400" ]]; then
   echo "D1 integration failed: shipped demo checkout without ship_to returned HTTP $no_ship_status (expected 400)" >&2
   exit 1
 fi
+
+# Restore Plus Thirty's safe shipping-off default for the remaining demo flow.
+npx wrangler d1 execute DB --local --persist-to "$state_dir" \
+  --command "DELETE FROM settings WHERE key = 'shipping_config'" >/dev/null
 
 pay_path="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.checkout_url) process.exit(1); process.stdout.write(new URL(b.checkout_url).pathname)' "$checkout")"
 order_id="$(node -e 'const b=JSON.parse(process.argv[1]); if (!b.order_public_id) process.exit(1); process.stdout.write(b.order_public_id)' "$checkout")"
