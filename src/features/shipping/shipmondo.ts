@@ -426,3 +426,16 @@ export function servicePointFromOrder(order: Pick<Order, 'ship_address'>): strin
   } catch {}
   return null;
 }
+
+export function servicePointCarrierFromOrder(order: Pick<Order, 'ship_address'>): string | null {
+  if (!order.ship_address) return null;
+  try {
+    const parsed = JSON.parse(order.ship_address) as Record<string, unknown>;
+    const point = parsed.servicePoint ?? parsed.service_point ?? parsed.pickupPoint ?? parsed.pickup_point;
+    if (!point || typeof point !== 'object') return null;
+    const carrier = (point as Record<string, unknown>).carrier;
+    return typeof carrier === 'string' ? shipmondoCarrierCode(carrier) : null;
+  } catch {
+    return null;
+  }
+}
