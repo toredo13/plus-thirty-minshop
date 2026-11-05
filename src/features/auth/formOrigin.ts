@@ -42,7 +42,7 @@ const CART_HANDOFF_ORIGINS = new Set([
   'https://plusthirty.dk',
   'https://www.plusthirty.dk',
   'https://greek-goods-nordic-market.lovable.app',
-  'https://lovable.dev',
+  'https://id-preview-67d1584e-a596-464c-835a-7ac48808323e.lovable.app',
 ]);
 
 /**
