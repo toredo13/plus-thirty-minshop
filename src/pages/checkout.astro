@@ -13,10 +13,17 @@ import {
 } from '../features/orders/guestAccess';
 import { lineUnitPriceCents } from '../features/cart/key';
 import { quoteShipping, allowedCountries, hasCatchAllZone, type ShippingOption } from '../features/shipping/calculator';
-import { countryOptions, countryName, isCountryCode } from '../features/shipping/countries';
 import { shippingFor } from '../features/shipping/effective';
 import { shipmentWeightFor } from '../features/shipping/lines';
 import { findPickupPoints, isPickupCarrier, type PickupCarrier, type PickupPoint } from '../features/shipping/pickupPoints';
+import { getSecret } from '../features/secrets/store';
+import { fetchShipmondoProducts, type ShipmondoProduct } from '../features/shipping/shipmondo';
+import {
+  checkoutCarriers,
+  shippingConfigForChoice,
+  shipmondoProductForCheckout,
+  type CheckoutDeliveryChoice,
+} from '../features/shipping/checkout';
 import { getLightningBackend } from '../features/payments/lightning';
 import { mintLightningOrder } from '../features/payments/lightning-provider';
 import {
@@ -132,35 +139,92 @@ const currency = cfg.currency;
 const effectiveShipping = shippingFor(Astro.locals.settings).config;
 const knownCountries = allowedCountries(effectiveShipping);
 const shipsAnywhere = hasCatchAllZone(effectiveShipping);
-// Cloudflare's GeoIP country (the CF-IPCountry request header): the default
-// destination when it's one we ship to. A guess, so it only seeds the selector —
-// the shopper can always change it. 'XX'/'T1' fail isCountryCode and fall through.
-const geoCountry = String(Astro.request.headers.get('cf-ipcountry') ?? '').toUpperCase();
-const geoDefault =
-  isCountryCode(geoCountry) && (shipsAnywhere || knownCountries.includes(geoCountry))
-    ? geoCountry
-    : null;
-// The choices the address form offers: every shippable country, by name. Explicit
-// zones list their codes; a catch-all store offers the whole ISO list.
-const destinationChoices = shipsAnywhere
-  ? countryOptions()
-  : knownCountries.map((code) => ({ code, name: countryName(code) })).sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-// Weight (and whether shipping applies at all) always comes from the current D1
-// rows resolved above — never from the posted form.
 const shipment = shipmentWeightFor(lines);
+const shippingApplies = effectiveShipping.enabled && shipment.shippingRequired;
+const supportsDenmark = shipsAnywhere || knownCountries.includes('DK');
+
+// Shipmondo credentials stay encrypted in Minshop's D1 vault. Only Danish
+// carrier services are shown in this checkout.
+let shipmondoProducts: ShipmondoProduct[] = [];
+let shipmondoError: string | null = null;
+if (shippingApplies && rail !== 'demo') {
+  const [username, apiKey] = await Promise.all([
+    getSecret(env.DB, 'shipmondo_api_user'),
+    getSecret(env.DB, 'shipmondo_api_key'),
+  ]);
+  if (!username || !apiKey) {
+    shipmondoError = 'Shipmondo is not connected yet. Add the API username and API key in Admin → Settings.';
+  } else {
+    const result = await fetchShipmondoProducts(username, apiKey, 'DK');
+    if (result.ok) shipmondoProducts = result.value;
+    else shipmondoError = result.error;
+  }
+}
+
+const shipmondoCarriers = [
+  ...new Set([
+    ...checkoutCarriers(shipmondoProducts, 'home'),
+    ...checkoutCarriers(shipmondoProducts, 'pickup'),
+  ]),
+];
+const requestedCarrier = fld('shipmondo_carrier') || Astro.url.searchParams.get('shipmondo_carrier') || '';
+const carrier: PickupCarrier =
+  isPickupCarrier(requestedCarrier) && shipmondoCarriers.includes(requestedCarrier)
+    ? requestedCarrier
+    : (shipmondoCarriers[0] ?? 'gls');
+const requestedChoice = fld('delivery_choice') || Astro.url.searchParams.get('delivery_choice') || '';
+const deliveryChoice: CheckoutDeliveryChoice =
+  requestedChoice === 'pickup'
+    ? 'pickup'
+    : requestedChoice === 'home'
+      ? 'home'
+      : rail === 'demo'
+        ? 'home'
+        : shipmondoProductForCheckout(shipmondoProducts, carrier, 'home')
+          ? 'home'
+          : 'pickup';
+const selectedShipmondoProduct =
+  rail === 'demo' ? null : shipmondoProductForCheckout(shipmondoProducts, carrier, deliveryChoice);
+
+// Product/cart IDs continue through every checkout step unchanged.
 const carry = productPublicId ?? '';
 const carryVariantId = buyNowVariantId ?? '';
 const carryExtraIds = buyNowExtraIds;
-
 const editAddressHref = (() => {
-  const params = new URLSearchParams({ method: rail });
+  const params = new URLSearchParams({
+    method: rail,
+    shipmondo_carrier: carrier,
+    delivery_choice: deliveryChoice,
+  });
   if (carry) params.set('product_id', carry);
   if (carryVariantId) params.set('variant_id', carryVariantId);
   for (const id of carryExtraIds) params.append('extra', id);
   return `/checkout?${params}`;
 })();
+
+const DEMO_ADDRESS = {
+  email: 'demo@example.com',
+  name: 'Demo Shopper',
+  line1: 'Example Street 1',
+  line2: '',
+  city: 'Copenhagen',
+  state: '',
+  postal: '2500',
+  country: 'DK',
+};
+const prefill = rail === 'demo' && !isPost ? DEMO_ADDRESS : null;
+const addr = {
+  email: fld('email') || (prefill?.email ?? ''),
+  name: fld('name') || (prefill?.name ?? ''),
+  line1: fld('line1') || (prefill?.line1 ?? ''),
+  line2: fld('line2') || (prefill?.line2 ?? ''),
+  city: fld('city') || (prefill?.city ?? ''),
+  state: fld('state') || (prefill?.state ?? ''),
+  postal: fld('postal') || (prefill?.postal ?? ''),
+  country: 'DK',
+  phone: fld('phone') || '',
+};
+const pickupSearchPostal = fld('pickup_search_postal');
 const RAIL_LABEL: Record<InAppRail, string> = {
   lightning: 'Pay with Lightning',
   opennode: 'Pay with Bitcoin',
@@ -199,32 +263,70 @@ const addr = {
   phone: fld('phone'),
 };
 
-let stage: 'address' | 'shipping' = 'address';
+let stage: 'delivery' | 'shipping' = 'delivery';
 let options: ShippingOption[] = [];
 let selectedPickupPoint: PickupPoint | null = null;
+let quote: ReturnType<typeof quoteShipping> | null = null;
 const errors: string[] = [];
 
-// Demo submits itself: the sample address on the first GET, no typing.
+// First choose carrier + pickup/home. The following POST validates the choice,
+// quotes the configured Minshop delivery price, and then continues to payment.
 const submitted = isPost || rail === 'demo';
 if (submitted) {
-  if (!/.+@.+\..+/.test(addr.email)) errors.push('A valid email is required.');
+  if (!/.+@.+\\..+/.test(addr.email)) errors.push('A valid email is required.');
   if (!addr.name) errors.push('Name is required.');
-  if (!addr.line1) errors.push('Address is required.');
-  if (!addr.city) errors.push('City is required.');
-  if (!addr.postal) errors.push('Postal code is required.');
-  if (addr.country.length !== 2) errors.push('Use a 2-letter country code (e.g. US).');
+  if (!supportsDenmark) errors.push('Denmark is not included in the store’s shipping destinations.');
+  if (rail !== 'demo' && shipmondoError) errors.push(`Shipmondo connection failed: ${shipmondoError}`);
+  if (rail !== 'demo' && !isPickupCarrier(requestedCarrier)) errors.push('Choose a shipping carrier.');
+  if (rail !== 'demo' && !selectedShipmondoProduct) {
+    errors.push(`The selected carrier does not offer ${deliveryChoice === 'pickup' ? 'parcel-shop' : 'home'} delivery through your Shipmondo account.`);
+  }
+  if (selectedShipmondoProduct?.requiredFields.includes('receiver_mobile') && !addr.phone) {
+    errors.push('This Shipmondo service requires your mobile number.');
+  }
+  if (selectedShipmondoProduct?.requiredFields.includes('receiver_email') && !addr.email) {
+    errors.push('This Shipmondo service requires your email address.');
+  }
+
+  if (deliveryChoice === 'pickup') {
+    if (!/^\\d{4}$/.test(pickupSearchPostal)) errors.push('Enter a 4-digit postcode to find nearby parcel shops.');
+    const pointId = fld('pickup_point_id');
+    if (!isPickupCarrier(carrier) || !pointId) {
+      errors.push('Search and choose one of the three nearby parcel shops.');
+    } else if (errors.length === 0) {
+      const lookup = await findPickupPoints(env.DB, carrier, pickupSearchPostal, '');
+      if (!lookup.ok) {
+        errors.push(lookup.error);
+      } else {
+        selectedPickupPoint = lookup.points.find((point) => point.id === pointId) ?? null;
+        if (!selectedPickupPoint) {
+          errors.push('That parcel shop could not be verified. Search again and choose one of the listed shops.');
+        } else {
+          // For parcel-shop delivery, the parcel shop is the shipment destination.
+          addr.line1 = selectedPickupPoint.street;
+          addr.line2 = '';
+          addr.city = selectedPickupPoint.city;
+          addr.postal = selectedPickupPoint.zip;
+          addr.state = '';
+        }
+      }
+    }
+  } else {
+    if (!addr.line1) errors.push('Street address is required for home delivery.');
+    if (!addr.city) errors.push('City is required for home delivery.');
+    if (!/^\\d{4}$/.test(addr.postal)) errors.push('Enter a valid 4-digit Danish postcode.');
+  }
 
   if (errors.length === 0) {
-    const quote = quoteShipping(effectiveShipping, {
+    const modeConfig = shippingConfigForChoice(effectiveShipping, deliveryChoice);
+    quote = quoteShipping(modeConfig, {
       subtotalCents,
-      country: addr.country,
+      country: 'DK',
       itemWeightGrams: shipment.itemWeightGrams,
       missingWeight: shipment.missingWeight,
     });
     options = quote.options;
     if (options.length === 0) {
-      // Distinguish "we don't ship there" from "we can't price this basket", so the
-      // shopper is told something they can act on.
       const missing = quote.omitted.some((o) => o.reason === 'missing_weight');
       const overweight = quote.omitted.some((o) => o.reason === 'overweight');
       if (missing) {
@@ -232,7 +334,7 @@ if (submitted) {
           JSON.stringify({
             event: 'shipping_quote_blocked',
             reason: 'missing_weight',
-            country: addr.country.toUpperCase(),
+            country: 'DK',
             products: quote.missingWeight.map(
               (m) => lines.find((l) => l.product.id === m.productId)?.product.public_id ?? m.name,
             ),
@@ -243,40 +345,32 @@ if (submitted) {
         );
       } else if (overweight) {
         errors.push('This order is too heavy for the available shipping services.');
+      } else if (modeConfig.zones.length === 0) {
+        errors.push(
+          deliveryChoice === 'pickup'
+            ? 'No parcel-shop shipping price is configured. Add a Parcel shop delivery rate in Admin → Shipping.'
+            : 'No home-delivery shipping price is configured. Add a flat or weight-based rate in Admin → Shipping.',
+        );
       } else {
-        errors.push(`Sorry, we don't ship to ${addr.country} yet.`);
+        errors.push('Shipmondo has no available shipping option for this delivery choice.');
       }
     } else {
       stage = 'shipping';
-      // Demo auto-picks the first rate — the rate step is also skipped.
+      // The selected delivery rate and Shipmondo delivery product are verified
+      // again on the final POST; no label is booked during checkout.
       const chosenLabel = fld('shipping_label') || (rail === 'demo' ? (options[0]?.label ?? '') : '');
       if (chosenLabel) {
-        const chosen = options.find((o) => o.label === chosenLabel);
+        const chosen = options.find((option) => option.label === chosenLabel);
         if (!chosen) {
           errors.push('Please choose a shipping option.');
+        } else if (
+          (deliveryChoice === 'pickup' && !chosen.servicePoint) ||
+          (deliveryChoice === 'home' && (chosen.servicePoint || chosen.pickup))
+        ) {
+          errors.push('Choose a shipping price that matches the delivery method.');
+        } else if (deliveryChoice === 'pickup' && !selectedPickupPoint) {
+          errors.push('Choose a parcel shop before continuing.');
         } else {
-          if (chosen.servicePoint) {
-            if (addr.country !== 'DK') {
-              errors.push('Parcel-shop delivery is currently available for Danish delivery addresses only.');
-            } else {
-              const carrier = fld('pickup_carrier');
-              const pointId = fld('pickup_point_id');
-              if (!isPickupCarrier(carrier) || !pointId) {
-                errors.push('Choose a parcel shop before continuing.');
-              } else {
-                const lookup = await findPickupPoints(env.DB, carrier, addr.postal, addr.line1);
-                if (!lookup.ok) {
-                  errors.push(lookup.error);
-                } else {
-                  selectedPickupPoint = lookup.points.find((point) => point.id === pointId) ?? null;
-                  if (!selectedPickupPoint) {
-                    errors.push('That parcel shop could not be verified. Search again and choose a listed parcel shop.');
-                  }
-                }
-              }
-            }
-          }
-          if (errors.length === 0) {
             // Finalize: mint the invoice for subtotal + the chosen shipping.
             // Claim the order's public identity + guest credential BEFORE the
             // provider handoff: the ord_ id ties reservation → pending payment →
@@ -318,6 +412,9 @@ if (submitted) {
                 country: addr.country,
                 phone: addr.phone || null,
                 servicePoint: selectedPickupPoint,
+                shipmondoCarrier: carrier,
+                shipmondoProductCode: selectedShipmondoProduct?.code ?? null,
+                deliveryChoice,
               };
               const itemsJson = JSON.stringify(
                 lines.map((l) => ({ id: l.product.id, v: l.variantId, q: l.qty, n: l.name, p: l.unitPriceCents })),
@@ -389,7 +486,7 @@ if (submitted) {
                 );
               }
             }
-          }
+
         }
       }
     }
@@ -402,8 +499,7 @@ const postedShippingLabel = fld('shipping_label');
 const initialShippingLabel = options.some((option) => option.label === postedShippingLabel)
   ? postedShippingLabel
   : (options[0]?.label ?? '');
-const initialPickupRequired = options.find((option) => option.label === initialShippingLabel)?.servicePoint === true;
-const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier')) ? fld('pickup_carrier') as PickupCarrier : 'gls';
+
 ---
 
 <Layout title="Checkout" description="Enter your shipping details.">
@@ -440,9 +536,9 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
           <input type="hidden" name="method" value={rail} />
           <input type="hidden" name="product_id" value={carry} />
           {carryVariantId && <input type="hidden" name="variant_id" value={carryVariantId} />}
-          {carryExtraIds.map((id) => (
-            <input type="hidden" name="extra" value={id} />
-          ))}
+          {carryExtraIds.map((id) => <input type="hidden" name="extra" value={id} />)}
+          <input type="hidden" name="delivery_choice" value={deliveryChoice} />
+          <input type="hidden" name="shipmondo_carrier" value={carrier} />
           <input type="hidden" name="email" value={addr.email} />
           <input type="hidden" name="name" value={addr.name} />
           <input type="hidden" name="line1" value={addr.line1} />
@@ -450,71 +546,48 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
           <input type="hidden" name="city" value={addr.city} />
           <input type="hidden" name="state" value={addr.state} />
           <input type="hidden" name="postal" value={addr.postal} />
-          <input type="hidden" name="country" value={addr.country} />
+          <input type="hidden" name="country" value="DK" />
           <input type="hidden" name="phone" value={addr.phone} />
+          <input type="hidden" name="pickup_search_postal" value={pickupSearchPostal} />
+          <input type="hidden" name="pickup_point_id" value={selectedPickupPoint?.id ?? ''} />
 
           <div class="rounded-lg border border-line bg-surface p-4 text-sm">
-            <div class="mb-1 font-medium">Ship to</div>
+            <div class="mb-1 font-medium">
+              {deliveryChoice === 'pickup' ? 'Pickup point' : 'Home delivery'}
+            </div>
             <div class="text-muted">
-              {addr.name}, {addr.line1}
-              {addr.line2 ? `, ${addr.line2}` : ''}, {addr.city} {addr.state} {addr.postal}, {addr.country}
+              {carrier.toUpperCase()} · {addr.name}
+              {deliveryChoice === 'pickup'
+                ? ` · ${selectedPickupPoint?.name ?? ''}, ${addr.line1}, ${addr.postal} ${addr.city}`
+                : ` · ${addr.line1}, ${addr.city} ${addr.postal}`}
             </div>
             <a href={editAddressHref} class="mt-2 inline-block text-xs font-medium text-accent">
-              Edit address
+              Edit delivery details
             </a>
           </div>
 
           <fieldset class="space-y-2">
-            <legend class="mb-1 text-sm font-medium">Shipping</legend>
-            {options.map((o, i) => (
+            <legend class="mb-1 text-sm font-medium">Shipping price</legend>
+            {options.map((option, index) => (
               <label class="flex cursor-pointer items-center justify-between rounded-lg border border-line bg-surface p-3 text-sm has-[:checked]:border-brand">
                 <span class="flex items-center gap-2">
                   <input
                     type="radio"
                     name="shipping_label"
-                    value={o.label}
-                    checked={o.label === initialShippingLabel || (!initialShippingLabel && i === 0)}
-                    data-shipping-service-point={o.servicePoint ? '1' : '0'}
+                    value={option.label}
+                    checked={option.label === initialShippingLabel || (!initialShippingLabel && index === 0)}
                   />
-                  {o.label}
+                  {option.label}
                 </span>
                 <span class="text-muted">
-                  {o.amountCents === 0 ? 'Free' : formatPrice(o.amountCents, currency)} · total{' '}
-                  {formatPrice(subtotalCents + o.amountCents, currency)}
+                  {option.amountCents === 0 ? 'Free' : formatPrice(option.amountCents, currency)} · total{' '}
+                  {formatPrice(subtotalCents + option.amountCents, currency)}
                 </span>
               </label>
             ))}
           </fieldset>
 
-          {options.some((option) => option.servicePoint) && (
-            <section id="pickup-point-picker" class="rounded-lg border border-line bg-surface p-4 space-y-3" hidden={!initialPickupRequired}>
-              <div>
-                <h2 class="font-medium text-sm">Choose a parcel shop</h2>
-                <p class="mt-1 text-xs text-muted">Select the carrier and the parcel shop where you want to collect your order.</p>
-              </div>
-              <label class="block text-sm">
-                <span class="mb-1 block font-medium">Carrier</span>
-                <select id="pickup-carrier" name="pickup_carrier" class="w-full rounded-md border border-line bg-white px-3 py-2">
-                  <option value="gls" selected={initialPickupCarrier === 'gls'}>GLS</option>
-                  <option value="postnord" selected={initialPickupCarrier === 'postnord'}>PostNord</option>
-                  <option value="dao" selected={initialPickupCarrier === 'dao'}>DAO</option>
-                </select>
-              </label>
-              <button id="pickup-point-search" type="button" class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider hover:border-brand">
-                Find nearby parcel shops
-              </button>
-              <p id="pickup-point-message" role="status" aria-live="polite" class="text-xs text-muted"></p>
-              <div id="pickup-point-results" class="space-y-2"></div>
-              <input type="hidden" name="pickup_point_id" id="pickup-point-id" value={selectedPickupPoint?.id ?? ''} />
-              {selectedPickupPoint && (
-                <p id="pickup-point-selected" class="text-xs font-medium text-green-700">
-                  Selected: {selectedPickupPoint.name}, {selectedPickupPoint.street}, {selectedPickupPoint.zip} {selectedPickupPoint.city}
-                </p>
-              )}
-              {!selectedPickupPoint && <p id="pickup-point-selected" class="text-xs font-medium text-green-700" hidden></p>}
-            </section>
-          )}
-                    <button
+          <button
             type="submit"
             class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-on-brand hover:bg-brand-hover"
           >
@@ -522,80 +595,126 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
           </button>
         </form>
       ) : (
-        <form method="POST" action="/checkout" class="space-y-3">
+        <form method="POST" action="/checkout" class="space-y-4" data-checkout-delivery>
           <input type="hidden" name="method" value={rail} />
           <input type="hidden" name="product_id" value={carry} />
           {carryVariantId && <input type="hidden" name="variant_id" value={carryVariantId} />}
-          {carryExtraIds.map((id) => (
-            <input type="hidden" name="extra" value={id} />
-          ))}
-          <label class="block text-sm">
-            <span class="mb-1 block font-medium">Email</span>
-            <input
-              type="email"
-              name="email"
-              value={addr.email}
+          {carryExtraIds.map((id) => <input type="hidden" name="extra" value={id} />)}
+
+          <div>
+            <p class="mb-2 text-sm font-medium">1. Choose your shipping carrier</p>
+            <select
+              id="shipmondo-carrier"
+              name="shipmondo_carrier"
               required
-              class="w-full rounded-md border border-line px-3 py-2"
-            />
-          </label>
-          <label class="block text-sm">
-            <span class="mb-1 block font-medium">Full name</span>
-            <input type="text" name="name" value={addr.name} required class="w-full rounded-md border border-line px-3 py-2" />
-          </label>
-          <label class="block text-sm">
-            <span class="mb-1 block font-medium">Address</span>
-            <input type="text" name="line1" value={addr.line1} required class="w-full rounded-md border border-line px-3 py-2" />
-          </label>
-          <label class="block text-sm">
-            <span class="mb-1 block font-medium">Apartment, suite, etc. (optional)</span>
-            <input type="text" name="line2" value={addr.line2} class="w-full rounded-md border border-line px-3 py-2" />
-          </label>
-          <label class="block text-sm">
-            <span class="mb-1 block font-medium">Phone / mobile (optional)</span>
-            <input type="tel" name="phone" value={addr.phone} autocomplete="tel" class="w-full rounded-md border border-line px-3 py-2" />
-          </label>
-          <div class="grid grid-cols-2 gap-3">
+              class="w-full rounded-md border border-line bg-surface px-3 py-2"
+              disabled={shipmondoCarriers.length === 0 && rail !== 'demo'}
+            >
+              {shipmondoCarriers.map((choice) => (
+                <option
+                  value={choice}
+                  selected={choice === carrier}
+                  data-has-home={shipmondoProductForCheckout(shipmondoProducts, choice, 'home') ? '1' : '0'}
+                  data-has-pickup={shipmondoProductForCheckout(shipmondoProducts, choice, 'pickup') ? '1' : '0'}
+                >
+                  {choice === 'gls' ? 'GLS' : choice === 'postnord' ? 'PostNord' : 'DAO'}
+                </option>
+              ))}
+              {shipmondoCarriers.length === 0 && rail === 'demo' && (
+                <option value="gls" selected data-has-home="1" data-has-pickup="0">GLS</option>
+              )}
+            </select>
+            {shipmondoError && rail !== 'demo' && (
+              <p class="mt-2 text-xs text-red-700">{shipmondoError}</p>
+            )}
+            {!selectedShipmondoProduct && !shipmondoError && rail !== 'demo' && (
+              <p class="mt-2 text-xs text-amber-700">
+                No matching Shipmondo service is available for this carrier and delivery type.
+              </p>
+            )}
+          </div>
+
+          <fieldset class="space-y-2">
+            <legend class="mb-2 text-sm font-medium">2. Choose how you want to receive your order</legend>
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface p-3 text-sm has-[:checked]:border-brand">
+              <input type="radio" name="delivery_choice" value="pickup" checked={deliveryChoice === 'pickup'} />
+              <span>Pickup point (choose one of 3 nearby shops)</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface p-3 text-sm has-[:checked]:border-brand">
+              <input type="radio" name="delivery_choice" value="home" checked={deliveryChoice === 'home'} />
+              <span>Home delivery</span>
+            </label>
+          </fieldset>
+
+          <div class="rounded-lg border border-line bg-surface p-4 space-y-3">
+            <p class="text-sm font-medium">Your contact details</p>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium">City</span>
-              <input type="text" name="city" value={addr.city} required class="w-full rounded-md border border-line px-3 py-2" />
+              <span class="mb-1 block font-medium">Email</span>
+              <input type="email" name="email" value={addr.email} required autocomplete="email" class="w-full rounded-md border border-line px-3 py-2" />
             </label>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium">State / Province</span>
-              <input type="text" name="state" value={addr.state} class="w-full rounded-md border border-line px-3 py-2" />
+              <span class="mb-1 block font-medium">Full name</span>
+              <input type="text" name="name" value={addr.name} required autocomplete="name" class="w-full rounded-md border border-line px-3 py-2" />
+            </label>
+            <label class="block text-sm">
+              <span class="mb-1 block font-medium">Phone / mobile</span>
+              <input
+                type="tel"
+                name="phone"
+                value={addr.phone}
+                autocomplete="tel"
+                required={!!selectedShipmondoProduct?.requiredFields.includes('receiver_mobile')}
+                class="w-full rounded-md border border-line px-3 py-2"
+              />
             </label>
           </div>
-          <div class="grid grid-cols-2 gap-3">
+
+          <section id="pickup-point-picker" class="rounded-lg border border-line bg-surface p-4 space-y-3" hidden={deliveryChoice !== 'pickup'}>
+            <div>
+              <h2 class="text-sm font-medium">3. Find your 3 nearest pickup points</h2>
+              <p class="mt-1 text-xs text-muted">Enter your postcode to find nearby shops for the selected carrier.</p>
+            </div>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium">Postal code</span>
-              <input type="text" name="postal" value={addr.postal} required class="w-full rounded-md border border-line px-3 py-2" />
+              <span class="mb-1 block font-medium">Postcode</span>
+              <input id="pickup-search-postal" name="pickup_search_postal" value={pickupSearchPostal} inputmode="numeric" maxlength="4" class="w-full rounded-md border border-line px-3 py-2" />
+            </label>
+            <button id="pickup-point-search" type="button" class="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-wider hover:border-brand">
+              Find 3 nearby pickup points
+            </button>
+            <p id="pickup-point-message" role="status" aria-live="polite" class="text-xs text-muted"></p>
+            <div id="pickup-point-results" class="space-y-2"></div>
+            <input type="hidden" name="pickup_point_id" id="pickup-point-id" value={fld('pickup_point_id')} />
+            <p id="pickup-point-selected" class="text-xs font-medium text-green-700" hidden></p>
+          </section>
+
+          <section id="home-delivery-fields" class="rounded-lg border border-line bg-surface p-4 space-y-3" hidden={deliveryChoice !== 'home'}>
+            <h2 class="text-sm font-medium">3. Home delivery address</h2>
+            <label class="block text-sm">
+              <span class="mb-1 block font-medium">Street address</span>
+              <input type="text" name="line1" value={addr.line1} autocomplete="address-line1" class="w-full rounded-md border border-line px-3 py-2" />
             </label>
             <label class="block text-sm">
-              <span class="mb-1 block font-medium">Country</span>
-              {/* A select, not a code field: shoppers should not need to know ISO
-                  codes. Native type-ahead finds a country by typing its name; the
-                  value stays the alpha-2 code the calculator expects. */}
-              <select
-                name="country"
-                required
-                class="w-full rounded-md border border-line px-3 py-2 bg-surface"
-              >
-                {destinationChoices.map((c) => (
-                  <option value={c.code} selected={c.code === addr.country}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <span class="mb-1 block font-medium">Apartment, suite, etc. (optional)</span>
+              <input type="text" name="line2" value={addr.line2} autocomplete="address-line2" class="w-full rounded-md border border-line px-3 py-2" />
             </label>
-          </div>
-          {
-            knownCountries.length > 0 && (
-              <p class="text-xs text-faint">Ships to: {knownCountries.join(', ')}</p>
-            )
-          }
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm">
+                <span class="mb-1 block font-medium">City</span>
+                <input type="text" name="city" value={addr.city} autocomplete="address-level2" class="w-full rounded-md border border-line px-3 py-2" />
+              </label>
+              <label class="block text-sm">
+                <span class="mb-1 block font-medium">Postcode</span>
+                <input type="text" name="postal" value={addr.postal} inputmode="numeric" maxlength="4" autocomplete="postal-code" class="w-full rounded-md border border-line px-3 py-2" />
+              </label>
+            </div>
+            <input type="hidden" name="country" value="DK" />
+            <input type="hidden" name="state" value="" />
+          </section>
+
           <button
             type="submit"
             class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-on-brand hover:bg-brand-hover"
+            disabled={shipmondoCarriers.length === 0 && rail !== 'demo'}
           >
             Continue to shipping →
           </button>
@@ -604,113 +723,133 @@ const initialPickupCarrier: PickupCarrier = isPickupCarrier(fld('pickup_carrier'
     }
   </div>
 <script>
-  const pickupForm = document.querySelector<HTMLFormElement>('form[action="/checkout"]');
-  const pickupSection = document.querySelector<HTMLElement>('#pickup-point-picker');
-  const pickupCarrier = document.getElementById('pickup-carrier') as unknown as HTMLSelectElement | null;
-  const pickupSearch = document.querySelector<HTMLButtonElement>('#pickup-point-search');
-  const pickupMessage = document.querySelector<HTMLElement>('#pickup-point-message');
-  const pickupResults = document.querySelector<HTMLElement>('#pickup-point-results');
-  const pickupPointId = document.querySelector<HTMLInputElement>('#pickup-point-id');
-  const pickupSelected = document.querySelector<HTMLElement>('#pickup-point-selected');
+  const deliveryForm = document.querySelector<HTMLFormElement>('form[data-checkout-delivery]');
+  const carrierSelect = document.getElementById('shipmondo-carrier') as HTMLSelectElement | null;
+  const deliveryChoices = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="delivery_choice"]'));
+  const pickupSection = document.getElementById('pickup-point-picker');
+  const homeSection = document.getElementById('home-delivery-fields');
+  const pickupPostal = document.getElementById('pickup-search-postal') as HTMLInputElement | null;
+  const pickupSearch = document.getElementById('pickup-point-search') as HTMLButtonElement | null;
+  const pickupMessage = document.getElementById('pickup-point-message');
+  const pickupResults = document.getElementById('pickup-point-results');
+  const pickupPointId = document.getElementById('pickup-point-id') as HTMLInputElement | null;
+  const pickupSelected = document.getElementById('pickup-point-selected');
 
-  if (pickupForm && pickupSection && pickupCarrier && pickupSearch && pickupMessage && pickupResults && pickupPointId) {
-    const pickupRates = Array.from(pickupForm.querySelectorAll<HTMLInputElement>('input[name="shipping_label"]'));
-    const selectedRate = () => pickupRates.find((rate) => rate.checked);
+  if (deliveryForm && carrierSelect && pickupSection && homeSection) {
+    const currentChoice = () => deliveryChoices.find((input) => input.checked)?.value ?? 'home';
     const clearPoint = () => {
-      pickupPointId.value = '';
-      pickupResults.replaceChildren();
+      if (pickupPointId) pickupPointId.value = '';
+      pickupResults?.replaceChildren();
       if (pickupSelected) {
         pickupSelected.textContent = '';
         pickupSelected.hidden = true;
       }
     };
-    const syncPickupVisibility = () => {
-      const needsPoint = selectedRate()?.dataset.shippingServicePoint === '1';
-      pickupSection.hidden = !needsPoint;
-      if (!needsPoint) clearPoint();
-    };
-
-    pickupRates.forEach((rate) => rate.addEventListener('change', syncPickupVisibility));
-    pickupCarrier.addEventListener('change', () => {
-      clearPoint();
-      pickupMessage.textContent = '';
-    });
-    syncPickupVisibility();
-
-    pickupSearch.addEventListener('click', async () => {
-      const postal = String(new FormData(pickupForm).get('postal') ?? '').trim();
-      const street = String(new FormData(pickupForm).get('line1') ?? '').trim();
-      if (!/^\d{4}$/.test(postal)) {
-        pickupMessage.textContent = 'A 4-digit Danish postcode is required to search parcel shops.';
-        return;
+    const syncDeliveryChoice = () => {
+      const showPickup = currentChoice() === 'pickup';
+      pickupSection.hidden = !showPickup;
+      homeSection.hidden = showPickup;
+      pickupSection.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
+        if (input !== pickupPointId) input.disabled = !showPickup;
+      });
+      homeSection.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
+        input.disabled = showPickup;
+      });
+      Array.from(carrierSelect.options).forEach((option) => {
+        const supports = showPickup
+          ? option.dataset.hasPickup !== '0'
+          : option.dataset.hasHome !== '0';
+        option.disabled = option.value !== 'gls' && !supports;
+      });
+      if (carrierSelect.selectedOptions[0]?.disabled) {
+        const next = Array.from(carrierSelect.options).find((option) => !option.disabled);
+        if (next) carrierSelect.value = next.value;
       }
-      pickupSearch.disabled = true;
-      pickupMessage.textContent = 'Searching nearby parcel shops…';
+    };
+    deliveryChoices.forEach((input) => input.addEventListener('change', () => {
       clearPoint();
-      try {
-        const params = new URLSearchParams({ carrier: pickupCarrier.value, zip: postal, street });
-        const response = await fetch(`/api/shipping/pickup-points?${params.toString()}`, {
-          headers: { accept: 'application/json' },
-        });
-        const data = await response.json() as {
-          ok?: boolean;
-          error?: string;
-          points?: Array<{ id: string; name: string; street: string; zip: string; city: string; distance: number }>;
-        };
-        if (!response.ok || !data.ok) throw new Error(data.error || 'Parcel-shop search failed.');
-        const points = data.points ?? [];
-        if (!points.length) {
-          pickupMessage.textContent = 'No parcel shops were found nearby. Try another street or carrier.';
+      if (pickupMessage) pickupMessage.textContent = '';
+      syncDeliveryChoice();
+    }));
+    carrierSelect.addEventListener('change', () => {
+      clearPoint();
+      if (pickupMessage) pickupMessage.textContent = '';
+    });
+    pickupPostal?.addEventListener('input', clearPoint);
+    syncDeliveryChoice();
+
+    if (pickupSearch && pickupMessage && pickupResults && pickupPointId && pickupPostal) {
+      pickupSearch.addEventListener('click', async () => {
+        const postal = pickupPostal.value.trim();
+        if (!/^\\d{4}$/.test(postal)) {
+          pickupMessage.textContent = 'Enter a valid 4-digit Danish postcode.';
           return;
         }
-        pickupMessage.textContent = 'Choose one of these nearby parcel shops:';
-        for (const point of points) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'w-full rounded-md border border-line bg-white p-3 text-left text-sm hover:border-brand';
-          const name = document.createElement('span');
-          name.className = 'block font-medium';
-          name.textContent = point.name;
-          const address = document.createElement('span');
-          address.className = 'mt-1 block text-xs text-muted';
-          address.textContent = `${point.street}, ${point.zip} ${point.city}`;
-          const distance = document.createElement('span');
-          distance.className = 'mt-1 block text-xs text-muted';
-          distance.textContent = point.distance > 0
-            ? (point.distance < 1000 ? `${Math.round(point.distance)} m away` : `${(point.distance / 1000).toFixed(1)} km away`)
-            : '';
-          button.appendChild(name);
-          button.appendChild(address);
-          button.appendChild(distance);
-          button.addEventListener('click', () => {
-            pickupPointId.value = point.id;
-            if (pickupSelected) {
-              pickupSelected.textContent = `Selected: ${point.name}, ${point.street}, ${point.zip} ${point.city}`;
-              pickupSelected.hidden = false;
-            }
-            Array.from(pickupResults.querySelectorAll('button')).forEach((item) => {
-              item.classList.remove('border-brand', 'bg-brand/5');
-            });
-            button.classList.add('border-brand', 'bg-brand/5');
-            pickupMessage.textContent = 'Parcel shop selected.';
+        pickupSearch.disabled = true;
+        pickupMessage.textContent = 'Searching Shipmondo for the 3 nearest pickup points…';
+        clearPoint();
+        try {
+          const params = new URLSearchParams({ carrier: carrierSelect.value, zip: postal, street: '' });
+          const response = await fetch(`/api/shipping/pickup-points?${params.toString()}`, {
+            headers: { accept: 'application/json' },
           });
-          pickupResults.appendChild(button);
+          const data = await response.json() as {
+            ok?: boolean;
+            error?: string;
+            points?: Array<{ id: string; name: string; street: string; zip: string; city: string; distance: number }>;
+          };
+          if (!response.ok || !data.ok) throw new Error(data.error || 'Pickup-point search failed.');
+          const points = (data.points ?? []).slice(0, 3);
+          if (!points.length) {
+            pickupMessage.textContent = 'No pickup points were found nearby. Try another postcode or carrier.';
+            return;
+          }
+          pickupMessage.textContent = 'Choose one of these 3 nearby pickup points:';
+          for (const point of points) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'w-full rounded-md border border-line bg-white p-3 text-left text-sm hover:border-brand';
+            const name = document.createElement('span');
+            name.className = 'block font-medium';
+            name.textContent = point.name;
+            const address = document.createElement('span');
+            address.className = 'mt-1 block text-xs text-muted';
+            address.textContent = `${point.street}, ${point.zip} ${point.city}`;
+            const distance = document.createElement('span');
+            distance.className = 'mt-1 block text-xs text-muted';
+            distance.textContent = point.distance > 0
+              ? (point.distance < 1000 ? `${Math.round(point.distance)} m away` : `${(point.distance / 1000).toFixed(1)} km away`)
+              : '';
+            button.append(name, address, distance);
+            button.addEventListener('click', () => {
+              pickupPointId.value = point.id;
+              if (pickupSelected) {
+                pickupSelected.textContent = `Selected: ${point.name}, ${point.street}, ${point.zip} ${point.city}`;
+                pickupSelected.hidden = false;
+              }
+              Array.from(pickupResults.querySelectorAll('button')).forEach((item) => {
+                item.classList.remove('border-brand', 'bg-brand/5');
+              });
+              button.classList.add('border-brand', 'bg-brand/5');
+              pickupMessage.textContent = 'Pickup point selected.';
+            });
+            pickupResults.appendChild(button);
+          }
+        } catch (error) {
+          pickupMessage.textContent = error instanceof Error ? error.message : 'Pickup-point search failed.';
+        } finally {
+          pickupSearch.disabled = false;
         }
-      } catch (error) {
-        pickupMessage.textContent = error instanceof Error ? error.message : 'Parcel-shop search failed.';
-      } finally {
-        pickupSearch.disabled = false;
-      }
-    });
-
-    pickupForm.addEventListener('submit', (event) => {
-      if (selectedRate()?.dataset.shippingServicePoint === '1' && !pickupPointId.value) {
-        event.preventDefault();
-        pickupMessage.textContent = 'Please search and select a parcel shop before continuing.';
-        pickupSection.hidden = false;
-        pickupSearch.focus();
-      }
-    });
+      });
+      deliveryForm.addEventListener('submit', (event) => {
+        if (currentChoice() === 'pickup' && !pickupPointId.value) {
+          event.preventDefault();
+          pickupMessage.textContent = 'Search and select one of the 3 pickup points before continuing.';
+          pickupSection.hidden = false;
+          pickupSearch.focus();
+        }
+      });
+    }
   }
 </script>
 
