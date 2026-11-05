@@ -147,7 +147,7 @@ const supportsDenmark = shipsAnywhere || knownCountries.includes('DK');
 // carrier services are shown in this checkout.
 let shipmondoProducts: ShipmondoProduct[] = [];
 let shipmondoError: string | null = null;
-if (shippingApplies && rail !== 'demo') {
+if (shippingApplies) {
   const [username, apiKey] = await Promise.all([
     getSecret(env.DB, 'shipmondo_api_user'),
     getSecret(env.DB, 'shipmondo_api_key'),
@@ -178,11 +178,9 @@ const deliveryChoice: CheckoutDeliveryChoice =
     ? 'pickup'
     : requestedChoice === 'home'
       ? 'home'
-      : rail === 'demo'
+      : shipmondoProductForCheckout(shipmondoProducts, carrier, 'home')
         ? 'home'
-        : shipmondoProductForCheckout(shipmondoProducts, carrier, 'home')
-          ? 'home'
-          : 'pickup';
+        : 'pickup';
 const selectedShipmondoProduct =
   rail === 'demo' ? null : shipmondoProductForCheckout(shipmondoProducts, carrier, deliveryChoice);
 
@@ -246,9 +244,9 @@ if (submitted) {
   if (!/.+@.+\..+/.test(addr.email)) errors.push('A valid email is required.');
   if (!addr.name) errors.push('Name is required.');
   if (!supportsDenmark) errors.push('Denmark is not included in the store’s shipping destinations.');
-  if (rail !== 'demo' && shipmondoError) errors.push(`Shipmondo connection failed: ${shipmondoError}`);
-  if (rail !== 'demo' && !isPickupCarrier(requestedCarrier)) errors.push('Choose a shipping carrier.');
-  if (rail !== 'demo' && !selectedShipmondoProduct) {
+  if (shipmondoError) errors.push(`Shipmondo connection failed: ${shipmondoError}`);
+  if (!isPickupCarrier(requestedCarrier)) errors.push('Choose a shipping carrier.');
+  if (!selectedShipmondoProduct) {
     errors.push(`The selected carrier does not offer ${deliveryChoice === 'pickup' ? 'parcel-shop' : 'home'} delivery through your Shipmondo account.`);
   }
   if (selectedShipmondoProduct?.requiredFields.includes('receiver_mobile') && !addr.phone) {
@@ -578,7 +576,7 @@ const initialShippingLabel = options.some((option) => option.label === postedShi
               name="shipmondo_carrier"
               required
               class="w-full rounded-md border border-line bg-surface px-3 py-2"
-              disabled={shipmondoCarriers.length === 0 && rail !== 'demo'}
+              disabled={shipmondoCarriers.length === 0}
             >
               {shipmondoCarriers.map((choice) => (
                 <option
@@ -590,14 +588,14 @@ const initialShippingLabel = options.some((option) => option.label === postedShi
                   {choice === 'gls' ? 'GLS' : choice === 'postnord' ? 'PostNord' : 'DAO'}
                 </option>
               ))}
-              {shipmondoCarriers.length === 0 && rail === 'demo' && (
-                <option value="gls" selected data-has-home="1" data-has-pickup="0">GLS</option>
+              {shipmondoCarriers.length === 0 && (
+                <option value="" selected>No Shipmondo services available</option>
               )}
             </select>
-            {shipmondoError && rail !== 'demo' && (
+            {shipmondoError && (
               <p class="mt-2 text-xs text-red-700">{shipmondoError}</p>
             )}
-            {!selectedShipmondoProduct && !shipmondoError && rail !== 'demo' && (
+            {!selectedShipmondoProduct && !shipmondoError && (
               <p class="mt-2 text-xs text-amber-700">
                 No matching Shipmondo service is available for this carrier and delivery type.
               </p>
@@ -684,7 +682,7 @@ const initialShippingLabel = options.some((option) => option.label === postedShi
           <button
             type="submit"
             class="w-full rounded-md bg-brand px-4 py-2.5 font-medium text-on-brand hover:bg-brand-hover"
-            disabled={shipmondoCarriers.length === 0 && rail !== 'demo'}
+            disabled={shipmondoCarriers.length === 0}
           >
             Continue to shipping →
           </button>
