@@ -790,7 +790,9 @@ const initialShippingLabel = options.some((option) => option.label === postedShi
             distance.textContent = point.distance > 0
               ? (point.distance < 1000 ? `${Math.round(point.distance)} m away` : `${(point.distance / 1000).toFixed(1)} km away`)
               : '';
-            button.append(name, address, distance);
+            button.appendChild(name);
+            button.appendChild(address);
+            button.appendChild(distance);
             button.addEventListener('click', () => {
               pickupPointId.value = point.id;
               if (pickupSelected) {
