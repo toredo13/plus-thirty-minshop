@@ -243,7 +243,7 @@ const errors: string[] = [];
 // quotes the configured Minshop delivery price, and then continues to payment.
 const submitted = isPost || rail === 'demo';
 if (submitted) {
-  if (!/.+@.+\\..+/.test(addr.email)) errors.push('A valid email is required.');
+  if (!/.+@.+\..+/.test(addr.email)) errors.push('A valid email is required.');
   if (!addr.name) errors.push('Name is required.');
   if (!supportsDenmark) errors.push('Denmark is not included in the store’s shipping destinations.');
   if (rail !== 'demo' && shipmondoError) errors.push(`Shipmondo connection failed: ${shipmondoError}`);
@@ -259,7 +259,7 @@ if (submitted) {
   }
 
   if (deliveryChoice === 'pickup') {
-    if (!/^\\d{4}$/.test(pickupSearchPostal)) errors.push('Enter a 4-digit postcode to find nearby parcel shops.');
+    if (!/^\d{4}$/.test(pickupSearchPostal)) errors.push('Enter a 4-digit postcode to find nearby parcel shops.');
     const pointId = fld('pickup_point_id');
     if (!isPickupCarrier(carrier) || !pointId) {
       errors.push('Search and choose one of the three nearby parcel shops.');
@@ -284,7 +284,7 @@ if (submitted) {
   } else {
     if (!addr.line1) errors.push('Street address is required for home delivery.');
     if (!addr.city) errors.push('City is required for home delivery.');
-    if (!/^\\d{4}$/.test(addr.postal)) errors.push('Enter a valid 4-digit Danish postcode.');
+    if (!/^\d{4}$/.test(addr.postal)) errors.push('Enter a valid 4-digit Danish postcode.');
   }
 
   if (errors.length === 0) {
@@ -751,7 +751,7 @@ const initialShippingLabel = options.some((option) => option.label === postedShi
     if (pickupSearch && pickupMessage && pickupResults && pickupPointId && pickupPostal) {
       pickupSearch.addEventListener('click', async () => {
         const postal = pickupPostal.value.trim();
-        if (!/^\\d{4}$/.test(postal)) {
+        if (!/^\d{4}$/.test(postal)) {
           pickupMessage.textContent = 'Enter a valid 4-digit Danish postcode.';
           return;
         }
