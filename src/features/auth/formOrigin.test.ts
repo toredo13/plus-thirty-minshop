@@ -69,7 +69,7 @@ describe('isAllowedCartImportHandoff', () => {
       'https://plusthirty.dk',
       'https://www.plusthirty.dk',
       'https://greek-goods-nordic-market.lovable.app',
-      'https://lovable.dev',
+      'https://id-preview-67d1584e-a596-464c-835a-7ac48808323e.lovable.app',
     ]) {
       const request = cartRequest(origin, 'import');
       expect(isForbiddenFormOrigin(request, cartUrl)).toBe(true);
