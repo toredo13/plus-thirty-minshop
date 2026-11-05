@@ -241,7 +241,7 @@ const errors: string[] = [];
 
 // First choose carrier + pickup/home. The following POST validates the choice,
 // quotes the configured Minshop delivery price, and then continues to payment.
-const submitted = isPost || rail === 'demo';
+const submitted = isPost;
 if (submitted) {
   if (!/.+@.+\..+/.test(addr.email)) errors.push('A valid email is required.');
   if (!addr.name) errors.push('Name is required.');
