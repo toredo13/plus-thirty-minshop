@@ -7,6 +7,7 @@ import { listVariants, getExtrasByPublicIds } from '../../features/products/vari
 import { parsePublicId } from '../../features/ids/publicId.ts';
 import { getStoreSettings } from '../../features/settings/db';
 import { parseCartImportItems } from '../../features/cart/import';
+import { isAllowedCrossSiteCartAction } from '../../features/auth/formOrigin';
 
 export const prerender = false;
 
@@ -15,6 +16,9 @@ export const prerender = false;
 export const POST: APIRoute = async ({ request, cookies, url, redirect }) => {
   const form = await request.formData();
   const action = String(form.get('_action'));
+  if (!isAllowedCrossSiteCartAction(request, url, action)) {
+    return new Response('Cross-site cart requests may only import a cart.', { status: 403 });
+  }
   const cart = readCart(cookies);
   const partial = request.headers.get('x-partial') === '1';
   if (!(await getStoreSettings(env.DB)).cartEnabled) {
