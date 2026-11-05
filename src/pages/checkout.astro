@@ -232,36 +232,6 @@ const RAIL_LABEL: Record<InAppRail, string> = {
   stripe: 'Pay by card',
 };
 
-/**
- * Demo orders don't ship anywhere, so the demo rail skips this page entirely:
- * the first GET is treated as a submission of this hard-coded sample address
- * with the first quoted rate, and the shopper lands straight on /pay — one
- * click (Approve) end to end, with the demo banner as the first thing they
- * see. The form only renders for demo in the error fallback (e.g. shipping
- * cannot be quoted). The real-money rails (Lightning/OpenNode) always type.
- */
-const DEMO_ADDRESS = {
-  email: 'demo@example.com',
-  name: 'Demo Shopper',
-  line1: '123 Example Street',
-  line2: '',
-  city: 'Springfield',
-  state: '',
-  postal: '12345',
-  country: (geoDefault || knownCountries[0] || 'US').toUpperCase(),
-};
-const prefill = rail === 'demo' && !isPost ? DEMO_ADDRESS : null;
-const addr = {
-  email: fld('email') || (prefill?.email ?? ''),
-  name: fld('name') || (prefill?.name ?? ''),
-  line1: fld('line1') || (prefill?.line1 ?? ''),
-  line2: fld('line2') || (prefill?.line2 ?? ''),
-  city: fld('city') || (prefill?.city ?? ''),
-  state: fld('state') || (prefill?.state ?? ''),
-  postal: fld('postal') || (prefill?.postal ?? ''),
-  country: (fld('country') || prefill?.country || geoDefault || knownCountries[0] || 'US').toUpperCase(),
-  phone: fld('phone'),
-};
 
 let stage: 'delivery' | 'shipping' = 'delivery';
 let options: ShippingOption[] = [];
@@ -759,7 +729,7 @@ const initialShippingLabel = options.some((option) => option.label === postedShi
         const supports = showPickup
           ? option.dataset.hasPickup !== '0'
           : option.dataset.hasHome !== '0';
-        option.disabled = option.value !== 'gls' && !supports;
+        option.disabled = !supports;
       });
       if (carrierSelect.selectedOptions[0]?.disabled) {
         const next = Array.from(carrierSelect.options).find((option) => !option.disabled);
