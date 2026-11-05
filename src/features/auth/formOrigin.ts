@@ -50,17 +50,31 @@ const CART_HANDOFF_ORIGINS = new Set([
  * Allow that one cross-origin form action from the known Plus Thirty origins;
  * all product, price, stock and order data is still resolved server-side.
  */
-export async function isAllowedCartImportHandoff(request: Request, url: URL): Promise<boolean> {
+export function isAllowedCartImportHandoff(request: Request, url: URL): boolean {
   if (request.method !== 'POST' || url.pathname !== '/api/cart') return false;
 
   const origin = request.headers.get('origin');
-  if (!origin || !CART_HANDOFF_ORIGINS.has(origin)) return false;
-  if (!hasFormContentType(request.headers.get('content-type'))) return false;
+  return !!origin &&
+    CART_HANDOFF_ORIGINS.has(origin) &&
+    hasFormContentType(request.headers.get('content-type'));
+}
 
-  try {
-    const form = await request.clone().formData();
-    return form.get('_action') === 'import';
-  } catch {
-    return false;
-  }
+/**
+ * Cross-origin requests to the cart endpoint may only import the storefront
+ * cart. The action is checked after form parsing inside the API route, not by
+ * consuming a cloned request body in middleware.
+ */
+export function isAllowedCrossSiteCartAction(
+  request: Request,
+  url: URL,
+  action: string,
+): boolean {
+  const origin = request.headers.get('origin');
+  if (!origin || origin === url.origin) return true;
+
+  return request.method === 'POST' &&
+    url.pathname === '/api/cart' &&
+    CART_HANDOFF_ORIGINS.has(origin) &&
+    hasFormContentType(request.headers.get('content-type')) &&
+    action === 'import';
 }
